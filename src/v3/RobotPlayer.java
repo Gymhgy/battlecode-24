@@ -1,9 +1,8 @@
-package v3.v2;
+package v3;
 
 import battlecode.common.*;
 
 import java.util.Random;
-
 
 public strictfp class RobotPlayer {
 
@@ -90,6 +89,8 @@ public strictfp class RobotPlayer {
         else if(allies.length > 0)
             heal(rc);
         kiteOrChase(rc);
+        allies = rc.senseNearbyRobots(GameConstants.VISION_RADIUS_SQUARED, rc.getTeam());
+        allyCnt = allies.length;
         for(FlagInfo f : rc.senseNearbyFlags(2, opp)) {
             if (rc.canPickupFlag(f.getLocation())) {
                 rc.pickupFlag(f.getLocation());
@@ -100,7 +101,11 @@ public strictfp class RobotPlayer {
 
         //MACRO
         stickWithTeam(rc);
-        if (rc.isMovementReady() && !builder) {
+        int hurtCnt = 0;
+        for(int i = allyCnt; i-->0;) {
+            if (allies[i].health < 500) hurtCnt += 1;
+        }
+        if (rc.isMovementReady() && (hurtCnt < allyCnt * 0.5)) {
             flagMove(rc);
         }
 
@@ -153,8 +158,48 @@ public strictfp class RobotPlayer {
     static boolean isDiagonal(Direction dir) {
         return dir.dx * dir.dy != 0;
     }
+    private static void chase(RobotController rc, MapLocation location) throws GameActionException {
+        Direction forwardDir = rc.getLocation().directionTo(location);
+        Direction[] dirs = {forwardDir, forwardDir.rotateLeft(), forwardDir.rotateRight(),
+                forwardDir.rotateLeft().rotateLeft(), forwardDir.rotateRight().rotateRight()};
+        Direction bestDir = null;
+        int minCanSee = Integer.MAX_VALUE;
+        boolean bestHasCloud = false;
+        // pick a direction to chase to minimize the number of enemy launchers that can see us
+        for (Direction dir : dirs) {
+            if (rc.canMove(dir) && rc.getLocation().add(dir).distanceSquaredTo(location) <= 4) {
+                int canSee = 0;
+                for (int i = enemyCnt; --i >= 0;){
+                    int newDis = rc.getLocation().add(dir).distanceSquaredTo(enemies[i].location);
+                    if (newDis <= 20) {
+                        canSee++;
+                    }
+                }
+                if (minCanSee > canSee) {
+                    bestDir = dir;
+                    minCanSee = canSee;
+                } else if (minCanSee == canSee && isDiagonal(bestDir) && !isDiagonal(dir)) {
+                    // from Cow: we prefer non-diagonal moves to preserve formation
+                    bestDir = dir;
+                }
+            }
+        }
+        if (bestDir != null) {
+            indicator += String.format("chase%s,", location);
+            rc.move(bestDir);
+        } else {
+            indicator += "failchase,";
+        }
+    }
+
     private static void kiteOrChase(RobotController rc) throws GameActionException {
-        if(ourStr > 2 || kiteTarget == null) return;
+        if(kiteTarget == null) {
+            if (enemyCnt == 0) {return;}
+            kiteTarget = enemies[0].location;
+        }
+        if(ourStr > 2) {
+            if(rc.getHealth() >= 400) {chase(rc, kiteTarget);return;}
+        }
         Direction backDir = rc.getLocation().directionTo(kiteTarget).opposite();
         Direction[] dirs = {Direction.CENTER, backDir, backDir.rotateLeft(), backDir.rotateRight(),
                 backDir.rotateLeft().rotateLeft(), backDir.rotateRight().rotateRight()};
@@ -165,7 +210,7 @@ public strictfp class RobotPlayer {
                 int canSee = 0;
                 for (int i = enemyCnt; --i >= 0;){
                     int newDis = rc.getLocation().add(dir).distanceSquaredTo(enemies[i].location);
-                    if (newDis <= 6) {
+                    if (newDis <= 20) {
                         canSee++;
                     }
                 }
@@ -239,8 +284,9 @@ public strictfp class RobotPlayer {
     public static void heal(RobotController rc) throws GameActionException {
         if (!rc.isActionReady()) return;
         RobotInfo target = chooseHealTarget(rc);
-        if (target != null)
+        if (target != null) {
             rc.heal(target.location);
+        }
     }
 
     //TODO: make healing better
@@ -265,7 +311,7 @@ public strictfp class RobotPlayer {
     }
 
     public static void stickWithTeam(RobotController rc) throws GameActionException {
-        if (allyCnt <= 2 || builder) {
+        if (allyCnt <= 2) {
             if(rc.isMovementReady()) {
                 Pathfinding.moveToward(rc, rc.getAllySpawnLocations()[FastMath.rand256()%27]);
                 //indicator += "[stick: " + Communicator.maxSector(rc) + "] ";

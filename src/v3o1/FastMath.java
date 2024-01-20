@@ -1,4 +1,4 @@
-package v3;
+package v3o1;
 
 import battlecode.common.Direction;
 import battlecode.common.MapLocation;

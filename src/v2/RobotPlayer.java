@@ -1,15 +1,8 @@
-package v1;
+package v2;
 
 import battlecode.common.*;
 
-import java.awt.*;
-import java.nio.file.Path;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
 import java.util.Random;
-import java.util.Set;
 
 
 public strictfp class RobotPlayer {
@@ -38,6 +31,10 @@ public strictfp class RobotPlayer {
             (int)(1.50 * BASE_ATTACK),
     };
     static RobotInfo[] enemies, allies;
+    static int enemyCnt, allyCnt;
+    static int ourStr;
+    static MapLocation kiteTarget;
+    static int commId = 0;
     public static void spawn(RobotController rc) throws GameActionException {
         MapLocation[] spawnLocs = rc.getAllySpawnLocations();
         // Pick a random spawn location to attempt spawning in.
@@ -47,13 +44,16 @@ public strictfp class RobotPlayer {
 
 
     static MapLocation target;
+    static boolean builder = false;
+    static MapLocation oldLoc;
+    static Team opp;
     public static void play(RobotController rc) throws GameActionException {
         indicator = "";
         if (rc.getRoundNum() < GameConstants.SETUP_ROUNDS) {
-            StartPhase.play(rc);
+            StartPhase.play(rc, builder);
             return;
         }
-
+        Pathfinding.dig = true;
         if(!rc.isSpawned()) {
             spawn(rc);
             return;
@@ -63,18 +63,33 @@ public strictfp class RobotPlayer {
         else if(rc.canBuyGlobal(GlobalUpgrade.HEALING)) rc.buyGlobal(GlobalUpgrade.HEALING);
 
         //SETUP KNOWN QUANTITIES
-        Team opp = rc.getTeam().opponent();
+        opp = rc.getTeam().opponent();
         enemies = rc.senseNearbyRobots(GameConstants.VISION_RADIUS_SQUARED, opp);
+        enemyCnt = enemies.length;
         allies = rc.senseNearbyRobots(GameConstants.VISION_RADIUS_SQUARED, rc.getTeam());
-
-
-
-
+        allyCnt = allies.length;
+        ourStr = Math.max(6, allyCnt) - enemyCnt;
+        oldLoc = rc.getLocation();
         //MICRO
+        if (rc.getRoundNum() < 205) {
+            if (rc.canBuild(TrapType.EXPLOSIVE, rc.getLocation())) {
+                if (builder || FastMath.rand256()%20==1) {
+                    rc.build(TrapType.EXPLOSIVE, rc.getLocation());
+                }
+            }
+        }
+        else if(builder && enemyCnt > 4) {
+            if (rc.canBuild(TrapType.EXPLOSIVE, rc.getLocation())) {
+                if (rc.getCrumbs() > 1000 || FastMath.rand256()%5==1) {
+                    rc.build(TrapType.EXPLOSIVE, rc.getLocation());
+                }
+            }
+        }
         if (enemies.length > 0)
             attack(rc);
         else if(allies.length > 0)
             heal(rc);
+        kiteOrChase(rc);
         for(FlagInfo f : rc.senseNearbyFlags(2, opp)) {
             if (rc.canPickupFlag(f.getLocation())) {
                 rc.pickupFlag(f.getLocation());
@@ -82,43 +97,11 @@ public strictfp class RobotPlayer {
                 break;
             }
         }
-        MapStore.updateMap(rc);
-        rc.writeSharedArray(0, rc.readSharedArray(0) & MapStore.possibleSymmetry);
-        //MACRO
-        int minDist = Integer.MAX_VALUE;
-        MapLocation bestLoc;
 
-        if (rc.isMovementReady()) {
-            if(rc.hasFlag()) {
-                if (target == null) {
-                    for (MapLocation spawn : rc.getAllySpawnLocations()) {
-                        if(spawn.distanceSquaredTo(rc.getLocation()) < minDist) {
-                            minDist = spawn.distanceSquaredTo(rc.getLocation());
-                            target = spawn;
-                        }
-                    }
-                }
-            }
-            else {
-                for (FlagInfo flag : rc.senseNearbyFlags(GameConstants.VISION_RADIUS_SQUARED, opp)) {
-                    if (flag.getLocation().distanceSquaredTo(rc.getLocation()) < minDist) {
-                        target = flag.getLocation();
-                        minDist = flag.getLocation().distanceSquaredTo(rc.getLocation());
-                    }
-                }
-                if (target == null) {
-                    for (MapLocation loc : rc.senseBroadcastFlagLocations()) {
-                        if (loc.distanceSquaredTo(rc.getLocation()) < minDist) {
-                            target = loc;
-                            minDist = loc.distanceSquaredTo(rc.getLocation());
-                        }
-                    }
-                }
-            }
-            if(target != null)
-                Pathfinding.moveToward(rc, target);
-            else
-                Pathfinding.randomMove(rc);
+        //MACRO
+        stickWithTeam(rc);
+        if (rc.isMovementReady() && !builder) {
+            flagMove(rc);
         }
 
         //MICRO, AGAIN
@@ -126,24 +109,105 @@ public strictfp class RobotPlayer {
             attack(rc);
         else if(allies.length > 0)
             heal(rc);
+        kiteOrChase(rc);
+
+        Communicator.writeSector(rc, commId, rc.getLocation());
+    }
+
+    static void flagMove(RobotController rc) throws GameActionException {
+        int minDist = Integer.MAX_VALUE;
+        if(rc.hasFlag()) {
+            if (target == null) {
+                for (MapLocation spawn : rc.getAllySpawnLocations()) {
+                    if(spawn.distanceSquaredTo(rc.getLocation()) < minDist) {
+                        minDist = spawn.distanceSquaredTo(rc.getLocation());
+                        target = spawn;
+                    }
+                }
+            }
+        }
         else {
-            if (rc.canBuild(TrapType.EXPLOSIVE, rc.getLocation()) && rng.nextInt() % 4 == 1)
-                rc.build(TrapType.EXPLOSIVE, rc.getLocation());
+            for (MapLocation loc : rc.senseBroadcastFlagLocations()) {
+                if (loc.distanceSquaredTo(rc.getLocation()) < minDist) {
+                    target = loc;
+                    minDist = loc.distanceSquaredTo(rc.getLocation());
+                }
+            }
+            for (FlagInfo flag : rc.senseNearbyFlags(GameConstants.VISION_RADIUS_SQUARED, opp)) {
+                if (flag.getLocation().distanceSquaredTo(rc.getLocation()) < minDist) {
+                    target = flag.getLocation();
+                    minDist = flag.getLocation().distanceSquaredTo(rc.getLocation());
+                }
+            }
+        }
+
+        int byteCode = Clock.getBytecodesLeft();
+        if(target != null)
+            indicator += Pathfinding.moveToward(rc, target);
+        else
+            Pathfinding.randomMove(rc);
+        if(Clock.getBytecodesLeft() < 2000) {
+            System.out.println(byteCode + " " + Clock.getBytecodesLeft());
+        }
+    }
+    static boolean isDiagonal(Direction dir) {
+        return dir.dx * dir.dy != 0;
+    }
+    private static void kiteOrChase(RobotController rc) throws GameActionException {
+        if(ourStr > 2 || kiteTarget == null) return;
+        Direction backDir = rc.getLocation().directionTo(kiteTarget).opposite();
+        Direction[] dirs = {Direction.CENTER, backDir, backDir.rotateLeft(), backDir.rotateRight(),
+                backDir.rotateLeft().rotateLeft(), backDir.rotateRight().rotateRight()};
+        Direction bestDir = null;
+        int minCanSee = Integer.MAX_VALUE;
+        for (Direction dir : dirs) {
+            if (rc.canMove(dir)) {
+                int canSee = 0;
+                for (int i = enemyCnt; --i >= 0;){
+                    int newDis = rc.getLocation().add(dir).distanceSquaredTo(enemies[i].location);
+                    if (newDis <= 6) {
+                        canSee++;
+                    }
+                }
+                if (minCanSee > canSee) {
+                    bestDir = dir;
+                    minCanSee = canSee;
+                }  else if (minCanSee == canSee && isDiagonal(bestDir) && !isDiagonal(dir)) {
+                    // from Cow: we prefer non-diagonal moves to preserve formation
+                    bestDir = dir;
+                }
+            }
+        }
+        if (bestDir != null && bestDir != Direction.CENTER){
+            indicator += "kite,";
+            rc.move(bestDir);
         }
     }
 
     public static void attack(RobotController rc) throws GameActionException {
         if (!rc.isActionReady()) return;
         RobotInfo target = chooseAttackTarget(rc);
-        if (target != null)
-            rc.attack(target.location);
+        if (target != null) {
+            MapLocation towards = rc.getLocation().add(rc.getLocation().directionTo(target.location));
+            if(FastMath.rand256()%3 == 1 && enemyCnt > 5 && rc.canBuild(TrapType.EXPLOSIVE, towards)) {
+                rc.build(TrapType.EXPLOSIVE, towards);
+            }
+            else {
+                rc.attack(target.location);
+            }
+            kiteTarget = target.location;
+        }
     }
 
     public static RobotInfo chooseAttackTarget(RobotController rc) {
         int minHitsReq = Integer.MAX_VALUE;
         int minDist = Integer.MIN_VALUE;
+        int byteCode = Clock.getBytecodesLeft();
         RobotInfo ret = null;
         for (int i = 0; i < enemies.length; i++) {
+            //if(Clock.getBytecodesLeft() < 1000) {
+            //    System.out.println(byteCode + " " + Clock.getBytecodesLeft());
+            //}
             RobotInfo enemy = enemies[i];
             int dist = enemy.location.distanceSquaredTo(rc.getLocation());
             if(!rc.canAttack(enemy.location))
@@ -169,6 +233,7 @@ public strictfp class RobotPlayer {
             }
         }
         return ret;
+
     }
 
     public static void heal(RobotController rc) throws GameActionException {
@@ -194,24 +259,33 @@ public strictfp class RobotPlayer {
     public static void endTurn(RobotController rc) {
         if (target != null)
             indicator += target.toString() + " ";
-        indicator += "(Sym " + MapStore.possibleSymmetry + ")";
         rc.setIndicatorString(indicator);
         if (target != null && rc.isSpawned())
             rc.setIndicatorLine(rc.getLocation(), target, 255,0,0);
     }
 
-    public static void report(RobotController rc) {
+    public static void stickWithTeam(RobotController rc) throws GameActionException {
+        if (allyCnt <= 2 || builder) {
+            if(rc.isMovementReady()) {
+                Pathfinding.moveToward(rc, rc.getAllySpawnLocations()[FastMath.rand256()%27]);
+                //indicator += "[stick: " + Communicator.maxSector(rc) + "] ";
+            }
+        }
 
     }
 
     @SuppressWarnings("unused")
     public static void run(RobotController rc) throws GameActionException {
-
+        if(rc.readSharedArray(0) < 3) {
+            builder = true;
+            commId = rc.readSharedArray(0)+1;
+            rc.writeSharedArray(0, commId);
+        }
+        FastMath.initRand(rc);
+        Communicator.init(rc);
         while (true) {
 
             try {
-                if (!rc.isSpawned())
-                    spawn(rc);
                 play(rc);
                 endTurn(rc);
             } catch (GameActionException e) {

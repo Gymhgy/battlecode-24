@@ -1,4 +1,4 @@
-package v1;
+package v2;
 
 import battlecode.common.*;
 
@@ -92,6 +92,8 @@ public class Pathfinding {
     private static Direction[] prv_ = new Direction[PRV_LENGTH];
     private static int pathingCnt_ = 0;
     static int MAX_DEPTH = 15;
+
+    static boolean dig = false;
 
     static String moveToward(RobotController rc, MapLocation location) throws GameActionException {
         // reset queue when target location changes or there's gap in between calls
@@ -225,7 +227,7 @@ public class Pathfinding {
         return 0;
     }
 
-    private static final int BYTECODE_CUTOFF = 3000;
+    private static final int BYTECODE_CUTOFF = 10000;
     static int getTurnDir(RobotController rc, Direction direction, MapLocation target) throws GameActionException{
         //int ret = getCenterDir(direction);
         MapLocation now = rc.getLocation();
@@ -345,8 +347,14 @@ public class Pathfinding {
     static boolean canPass(RobotController rc, MapLocation loc, Direction targetDir) throws GameActionException {
         if (loc.equals(rc.getLocation())) return true;
         if (!rc.canSenseLocation(loc)) return true;
-        if (rc.senseMapInfo(loc).isWall() || rc.senseMapInfo(loc).isDam()) return false;
-        for (Direction d : Direction.cardinalDirections()) {
+        MapInfo mi = rc.senseMapInfo(loc);
+        if (mi.isWall() || mi.isDam()) return false;
+        if (mi.isWater()) {
+            if (mi.getTeamTerritory() == rc.getTeam() && (loc.x + loc.y) % 2 == 1) return false;
+        }
+        if(rc.hasFlag()) return true;
+
+        for (Direction d : Direction.allDirections()) {
             if(!rc.canSenseLocation(loc.add(d))) continue;
             RobotInfo r = rc.senseRobotAtLocation(loc.add(d));
             if (r != null && r.hasFlag && r.team == rc.getTeam()) return false;
@@ -360,8 +368,13 @@ public class Pathfinding {
     static boolean canPass(RobotController rc, Direction dir, Direction targetDir) throws GameActionException {
         MapLocation loc = rc.getLocation().add(dir);
         if (!rc.canSenseLocation(loc)) return true;
-        if (rc.senseMapInfo(loc).isWall() || rc.senseMapInfo(loc).isDam()) return false;
-        for (Direction d : Direction.cardinalDirections()) {
+        MapInfo mi = rc.senseMapInfo(loc);
+        if (mi.isWall() || mi.isDam()) return false;
+        if (mi.isWater()) {
+            if (mi.getTeamTerritory() == rc.getTeam() && (loc.x + loc.y) % 2 == 1) return false;
+        }
+        if(rc.hasFlag()) return true;
+        for (Direction d : Direction.allDirections()) {
             if(!rc.canSenseLocation(loc.add(d))) continue;
             RobotInfo r = rc.senseRobotAtLocation(loc.add(d));
             if (r != null && r.hasFlag && r.team == rc.getTeam()) return false;

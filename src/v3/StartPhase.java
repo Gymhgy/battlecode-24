@@ -1,9 +1,9 @@
-package v3.v2;
+package v3;
 
 import battlecode.common.*;
 
-import static v2.RobotPlayer.directions;
-import static v2.RobotPlayer.rng;
+import static v3.RobotPlayer.directions;
+import static v3.RobotPlayer.rng;
 
 public class StartPhase {
 
@@ -22,7 +22,7 @@ public class StartPhase {
             for(Direction d : Direction.allDirections()) {
                 MapLocation loc = rc.getLocation().add(d);
                 if ((loc.x + loc.y)%2 == 1) {
-                    if(rc.canDig(loc)) {
+                    if(rc.canDig(loc) && rc.getLevel(SkillType.BUILD) != 6) {
                         rc.dig(loc);
                         break;
                     }
@@ -57,12 +57,9 @@ public class StartPhase {
     }
 
     public static void moveTowardsEnemy(RobotController rc) throws GameActionException {
-        int minDist = Integer.MAX_VALUE;
-        for (MapLocation loc : rc.senseBroadcastFlagLocations()) {
-            if (loc.distanceSquaredTo(rc.getLocation()) < minDist) {
-                target = loc;
-                minDist = loc.distanceSquaredTo(rc.getLocation());
-            }
+        if(rc.getRoundNum() == 180) {
+            MapLocation[] flags = rc.senseBroadcastFlagLocations();
+            target = flags[FastMath.rand256() % flags.length];
         }
         for(MapInfo mi : rc.senseNearbyMapInfos(2)) {
             if (mi.isDam()) return;

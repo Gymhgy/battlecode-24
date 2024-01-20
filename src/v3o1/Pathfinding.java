@@ -1,4 +1,4 @@
-package v3;
+package v3o1;
 
 import battlecode.common.*;
 
@@ -8,15 +8,26 @@ import battlecode.common.*;
  */
 public class Pathfinding {
 
-    public static final int[][] BFS25 = {
-            {0, 0},
-            {1, 0}, {-1, 0}, {0, 1}, {0, -1},
-            {1, 1}, {1, -1}, {-1, 1}, {-1, -1},
-            {2, 0}, {0, 2}, {-2, 0}, {0, -2},
-            {2, 1}, {2, -1}, {-2, 1}, {-2, -1}, {1, 2}, {1, -2}, {-1, 2}, {-1, -2},
-            {2, 2}, {2, -2}, {-2, 2}, {-2, -2}
-    };
-
+    static int turnsSinceRandomTargetChange = 0;
+    static MapLocation target;
+    public static boolean navigateRandomly(RobotController rc) throws GameActionException {
+        turnsSinceRandomTargetChange++;
+        if(target == null || rc.getLocation().distanceSquaredTo(target) < 5 ||
+                turnsSinceRandomTargetChange > rc.getMapWidth() + rc.getMapHeight()) {
+            int targetX = FastMath.rand256() % rc.getMapWidth();
+            int targetY = FastMath.rand256() % rc.getMapHeight();
+            target = new MapLocation(targetX, targetY);
+            turnsSinceRandomTargetChange = 0;
+        }
+        moveToward(rc, target);
+        if(rc.isMovementReady()) {
+            int targetX = FastMath.rand256() % rc.getMapWidth();
+            int targetY = FastMath.rand256() % rc.getMapHeight();
+            target = new MapLocation(targetX, targetY);
+            return false;
+        }
+        return true;
+    }
     static void randomMove(RobotController rc) throws GameActionException {
         int starting_i = FastMath.rand256() % 8;
         for (int i = starting_i; i < starting_i + 8; i++) {

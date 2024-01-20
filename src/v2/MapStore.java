@@ -1,10 +1,9 @@
-package v1;
+package v2;
 
-import battlecode.common.*;
-
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
+import battlecode.common.GameActionException;
+import battlecode.common.MapInfo;
+import battlecode.common.MapLocation;
+import battlecode.common.RobotController;
 
 public class MapStore {
 
