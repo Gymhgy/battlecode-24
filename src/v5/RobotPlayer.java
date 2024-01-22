@@ -1,4 +1,4 @@
-package v3o1;
+package v5;
 
 import battlecode.common.*;
 
@@ -42,10 +42,11 @@ public strictfp class RobotPlayer {
 
     static MapLocation target;
     static boolean builder = false;
+    static MapLocation oldLoc;
     static Team opp;
     public static void play(RobotController rc) throws GameActionException {
         indicator = "";
-        if (rc.getRoundNum() < GameConstants.SETUP_ROUNDS) {
+        if (rc.getRoundNum() <= GameConstants.SETUP_ROUNDS) {
             StartPhase.play(rc, builder);
             return;
         }
@@ -68,7 +69,9 @@ public strictfp class RobotPlayer {
                     (int)(1.50 * BASE_ATTACK),
             };
         }
-        else if(rc.canBuyGlobal(GlobalUpgrade.CAPTURING)) rc.buyGlobal(GlobalUpgrade.CAPTURING);
+        else if(rc.canBuyGlobal(GlobalUpgrade.CAPTURING)) {
+            rc.buyGlobal(GlobalUpgrade.CAPTURING);
+        }
         else if(rc.canBuyGlobal(GlobalUpgrade.HEALING)) rc.buyGlobal(GlobalUpgrade.HEALING);
 
         if(builder) {
@@ -90,18 +93,17 @@ public strictfp class RobotPlayer {
             sense(rc);
             micro(rc);
         }
+        checkNearbyFlag(rc);
 
     }
-
+    static boolean hadFlag = false;
     static MapLocation builderTarget = null;
     static void builderPlay(RobotController rc) throws GameActionException {
         sense(rc);
 
-        if ((enemyCnt > 1 || FastMath.rand256()%3==1) && rc.canBuild(TrapType.EXPLOSIVE, rc.getLocation())) {
-            rc.build(TrapType.EXPLOSIVE, rc.getLocation());
-        }
+        build(rc);
         if(chaseTarget != null) kite(rc, chaseTarget.location);
-        if(rc.getRoundNum() % 100 == 0) {
+        if(rc.getRoundNum() % 100 == 1) {
             MapLocation[] locs =  rc.senseBroadcastFlagLocations();
             if(locs.length == 0) {
                 builderTarget = Utils.spawnGroups[FastMath.rand256()%3][0];
@@ -111,11 +113,30 @@ public strictfp class RobotPlayer {
         if(rc.getRoundNum() % 100 == 50) {
             builderTarget = Utils.spawnGroups[FastMath.rand256()%3][0];
         }
+        if(closeFriendsSize < 3 && (rc.getRoundNum() - lastLauncherAttackRound) < 10) {
+            if (rc.isMovementReady() && groupingTarget != null ) {
+                indicator += "group,";
+                if (!rc.getLocation().isAdjacentTo(groupingTarget.location)) {
+                    Pathfinding.follow(rc, groupingTarget.location);
+                } else if (rc.getHealth() < groupingTarget.health) { // allowing healthier target to move away first
+                    indicator += "stop";
+                    rc.setIndicatorDot(rc.getLocation(), 0, 255, 0);
+                    return;
+                }
+                rc.setIndicatorLine(rc.getLocation(), groupingTarget.location, 0, 255, 0);
+            } else if (rc.isMovementReady()
+                    && groupingTarget == null
+                    && cachedGroupingTarget != null
+                    && rc.getRoundNum() - cachedGroupingRound < 6
+                    && !rc.getLocation().isAdjacentTo(cachedGroupingTarget.location)){
+                indicator += String.format("cacheGroup%s,",cachedGroupingTarget.location);
+                Pathfinding.follow(rc, cachedGroupingTarget.location);
+                rc.setIndicatorLine(rc.getLocation(), cachedGroupingTarget.location, 0, 255, 0);
+            }
+        }
         if(builderTarget != null) Pathfinding.moveToward(rc, builderTarget);
         if(rc.isActionReady()) {
-            if ((enemyCnt > 1 || FastMath.rand256()%3==1) && rc.canBuild(TrapType.EXPLOSIVE, rc.getLocation())) {
-                rc.build(TrapType.EXPLOSIVE, rc.getLocation());
-            }
+            build(rc);
         }
         if(rc.isActionReady()) {
             RobotInfo target = attackTarget == null? backupTarget : attackTarget;
@@ -125,6 +146,19 @@ public strictfp class RobotPlayer {
         if(rc.isActionReady()) {
             heal(rc);
         }
+    }
+
+    static void build(RobotController rc) throws GameActionException  {
+        if(closeFriendsSize > 2 &&
+                (enemyCnt > 1 || rc.senseMapInfo(rc.getLocation()).getTeamTerritory()==rc.getTeam().opponent()) &&
+                rc.canBuild(TrapType.STUN, rc.getLocation()))
+            rc.build(TrapType.STUN, rc.getLocation());
+
+        else if ((enemyCnt > 1 || FastMath.rand256()%6==1 || rc.senseMapInfo(rc.getLocation()).getTeamTerritory()==rc.getTeam().opponent())
+                && rc.canBuild(TrapType.EXPLOSIVE, rc.getLocation())) {
+            rc.build(TrapType.EXPLOSIVE, rc.getLocation());
+        }
+
     }
 
     static MapLocation myClosestSpawn = null;
@@ -171,7 +205,12 @@ public strictfp class RobotPlayer {
         }
 
         int byteCode = Clock.getBytecodesLeft();
-        if(flagLoc != null && !(pickedUp && rc.getRoundNum() % 2 == 0))
+        if(wander != null) {
+            indicator+="wander,";
+            rc.setIndicatorLine(rc.getLocation(), wander, 0,0,255);
+            Pathfinding.moveToward(rc, wander);
+        }
+        else if(flagLoc != null && !(pickedUp && rc.getRoundNum() % 2 == 0))
             indicator += Pathfinding.moveToward(rc, flagLoc);
         else if (approxFlagLog != null)
             indicator += Pathfinding.moveToward(rc, approxFlagLog);
@@ -185,13 +224,12 @@ public strictfp class RobotPlayer {
     static MapLocation flagLoc = null;
     static MapLocation approxFlagLog = null;
     static boolean pickedUp = false;
-    static void findFlag(RobotController rc) throws GameActionException {
-        int minDist = Integer.MAX_VALUE;
+    static void checkNearbyFlag(RobotController rc) throws GameActionException {
         MapLocation potentialFlagLoc = null;
+        int minDist = Integer.MAX_VALUE;
         boolean flagFound = false;
-        boolean pickedUp = false;
         for (FlagInfo flag : rc.senseNearbyFlags(GameConstants.VISION_RADIUS_SQUARED, rc.getTeam().opponent())) {
-            approxFlagLog = null;
+            if(flag.isPickedUp()) continue;
             if (flag.getLocation().distanceSquaredTo(rc.getLocation()) < minDist) {
                 potentialFlagLoc = flag.getLocation();
                 pickedUp = flag.isPickedUp();
@@ -201,18 +239,103 @@ public strictfp class RobotPlayer {
                 flagFound = true;
             }
         }
-        if(!flagFound || flagLoc == null) flagLoc = potentialFlagLoc;
+        if(potentialFlagLoc != null )
+            if(!flagFound || flagLoc == null) {
+                flagLoc = potentialFlagLoc;
+                wander = null;
+                if(approxFlagLog != null) {
+                    indicator+="reportedFlag,";
+                    Communicator.reportFlag(rc, approxFlagLog, potentialFlagLoc);
+                }
+            }
+    }
+    static void findFlag(RobotController rc) throws GameActionException {
+        if(approxFlagLog != null && stillBroadcasted(rc, approxFlagLog)) {indicator+="bc,";}
+        if(flagLoc != null &&
+                rc.canSenseLocation(flagLoc) &&
+                !existsFlagAt(rc,flagLoc)) {
+            flagLoc = null;
+        }
+        checkNearbyFlag(rc);
+        if(flagLoc == null && approxFlagLog != null && stillBroadcasted(rc, approxFlagLog)) {
+            MapLocation potential = Communicator.approxToActual(rc, approxFlagLog);
+            if (!potential.equals(approxFlagLog)) {
+                flagLoc = potential;
+                indicator += "received";
+                wander = null;
+            }
+        }
+        if(wander != null) {
+            if(rc.getLocation().distanceSquaredTo(wander) <= 2 && flagLoc == null || teammateAroundWander(rc)) {
+                indicator+="updateWander,";
+                generateWander(rc, approxFlagLog);
+            }
+            return;
+        }
+        if(approxFlagLog != null &&
+                rc.getLocation().isWithinDistanceSquared(approxFlagLog, 20) &&
+                flagLoc == null) {
+            //Generate wander to some place on a circle
+            if(wander == null) {
+                indicator+="setWander,";
 
-        if (flagLoc == null && approxFlagLog == null) {
-            minDist = Integer.MAX_VALUE;
+                generateWander(rc, approxFlagLog);
+            }
+        }
+
+        if(approxFlagLog == null || rc.getRoundNum()%100==0 || (!stillBroadcasted(rc, approxFlagLog) && flagLoc==null)) {
+            int minDist = Integer.MAX_VALUE;
             for (MapLocation loc : rc.senseBroadcastFlagLocations()) {
                 if (loc.distanceSquaredTo(rc.getLocation()) < minDist) {
                     approxFlagLog = loc;
-                    minDist = loc.distanceSquaredTo(rc.getLocation());
+                    minDist = loc.distanceSquaredTo(rc.getLocation()) + 50;
                 }
             }
         }
+        if(flagLoc == null && approxFlagLog != null && stillBroadcasted(rc, approxFlagLog)) {
+            MapLocation potential = Communicator.approxToActual(rc, approxFlagLog);
+            if (!potential.equals(approxFlagLog)) {
+                flagLoc = potential;
+                indicator += "received";
+                wander = null;
+            }
+        }
+        if(flagLoc != null &&
+                rc.canSenseLocation(flagLoc) &&
+                !existsFlagAt(rc,flagLoc)) {
+            flagLoc = null;
+        }
     }
+    static MapLocation wander;
+    static void generateWander(RobotController rc, MapLocation center) {
+        do  {
+            int i = FastMath.rand256() % 8;
+            int x = new int[]{-6,0,6,-6,6,-6,0,6}[i];
+            int y = new int[]{-6,-6,-6,0,0,6,6,6}[i];
+            wander = new MapLocation(center.x + x, center.y + y);
+        } while(!rc.onTheMap(wander));
+    }
+    static boolean teammateAroundWander(RobotController rc) throws GameActionException {
+        for(Direction d : Direction.allDirections()) {
+            MapLocation p = wander.add(d);
+            if(rc.canSenseLocation(p) && rc.senseRobotAtLocation(p) != null && rc.senseRobotAtLocation(p).team == rc.getTeam()) {
+                return true;
+            }
+        }
+        return false;
+    }
+    static boolean stillBroadcasted(RobotController rc, MapLocation approx) throws GameActionException {
+        MapLocation[] b = rc.senseBroadcastFlagLocations();
+        for(int i = b.length; i-->0; ) if(approx.equals(b[i])) return true;
+        return false;
+    }
+    static boolean existsFlagAt(RobotController rc, MapLocation loc) throws GameActionException {
+        for (FlagInfo flag : rc.senseNearbyFlags(GameConstants.VISION_RADIUS_SQUARED, rc.getTeam().opponent())) {
+            if(flag.getLocation() == loc) return true;
+        }
+        return false;
+    }
+
     static boolean isDiagonal(Direction dir) {
         return dir.dx * dir.dy != 0;
     }
@@ -292,7 +415,8 @@ public strictfp class RobotPlayer {
                         || (loc != null && robot.getHealth() == groupingTarget.getHealth() &&
                                 robot.location.distanceSquaredTo(loc) < groupingTarget.location.distanceSquaredTo(loc))
                 ) {
-                    groupingTarget = robot;
+                    if(robot.buildLevel < 2)
+                        groupingTarget = robot;
                 }
                 allies[friendCnt++] = robot;
                 ourTeamStrength += 1;
@@ -377,7 +501,7 @@ public strictfp class RobotPlayer {
                 int canSee = 0;
                 for (int i = enemyCnt; --i >= 0;){
                     int newDis = rc.getLocation().add(dir).distanceSquaredTo(enemies[i].location);
-                    if (newDis <= 20) {
+                    if (newDis <= 10) {
                         canSee++;
                     }
                 }
@@ -455,8 +579,8 @@ public strictfp class RobotPlayer {
     }
 
     public static void endTurn(RobotController rc) {
-        if(!builder && flagLoc != null) indicator+="flagLoc: "+flagLoc.toString()+",";
-        if(!builder && approxFlagLog != null) indicator+="approxFlagLog: "+approxFlagLog.toString()+",";
+        if(!builder && flagLoc != null) indicator+="fL:"+flagLoc.toString()+",";
+        if(!builder && approxFlagLog != null) indicator+="aFL:"+approxFlagLog.toString()+",";
         if(!builder && flagLoc == null && approxFlagLog == null) indicator += "null,";
         rc.setIndicatorString(indicator);
         if (builderTarget != null && rc.isSpawned())

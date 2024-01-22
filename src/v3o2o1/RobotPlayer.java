@@ -1,4 +1,4 @@
-package v3o1;
+package v3o2o1;
 
 import battlecode.common.*;
 
@@ -42,10 +42,11 @@ public strictfp class RobotPlayer {
 
     static MapLocation target;
     static boolean builder = false;
+    static MapLocation oldLoc;
     static Team opp;
     public static void play(RobotController rc) throws GameActionException {
         indicator = "";
-        if (rc.getRoundNum() < GameConstants.SETUP_ROUNDS) {
+        if (rc.getRoundNum() <= GameConstants.SETUP_ROUNDS) {
             StartPhase.play(rc, builder);
             return;
         }
@@ -68,7 +69,9 @@ public strictfp class RobotPlayer {
                     (int)(1.50 * BASE_ATTACK),
             };
         }
-        else if(rc.canBuyGlobal(GlobalUpgrade.CAPTURING)) rc.buyGlobal(GlobalUpgrade.CAPTURING);
+        else if(rc.canBuyGlobal(GlobalUpgrade.CAPTURING)) {
+            rc.buyGlobal(GlobalUpgrade.CAPTURING);
+        }
         else if(rc.canBuyGlobal(GlobalUpgrade.HEALING)) rc.buyGlobal(GlobalUpgrade.HEALING);
 
         if(builder) {
@@ -92,16 +95,14 @@ public strictfp class RobotPlayer {
         }
 
     }
-
+    static boolean hadFlag = false;
     static MapLocation builderTarget = null;
     static void builderPlay(RobotController rc) throws GameActionException {
         sense(rc);
 
-        if ((enemyCnt > 1 || FastMath.rand256()%3==1) && rc.canBuild(TrapType.EXPLOSIVE, rc.getLocation())) {
-            rc.build(TrapType.EXPLOSIVE, rc.getLocation());
-        }
+        build(rc);
         if(chaseTarget != null) kite(rc, chaseTarget.location);
-        if(rc.getRoundNum() % 100 == 0) {
+        if(rc.getRoundNum() % 100 == 1) {
             MapLocation[] locs =  rc.senseBroadcastFlagLocations();
             if(locs.length == 0) {
                 builderTarget = Utils.spawnGroups[FastMath.rand256()%3][0];
@@ -111,11 +112,30 @@ public strictfp class RobotPlayer {
         if(rc.getRoundNum() % 100 == 50) {
             builderTarget = Utils.spawnGroups[FastMath.rand256()%3][0];
         }
+        if(closeFriendsSize < 3 && (rc.getRoundNum() - lastLauncherAttackRound) < 10) {
+            if (rc.isMovementReady() && groupingTarget != null ) {
+                indicator += "group,";
+                if (!rc.getLocation().isAdjacentTo(groupingTarget.location)) {
+                    Pathfinding.follow(rc, groupingTarget.location);
+                } else if (rc.getHealth() < groupingTarget.health) { // allowing healthier target to move away first
+                    indicator += "stop";
+                    rc.setIndicatorDot(rc.getLocation(), 0, 255, 0);
+                    return;
+                }
+                rc.setIndicatorLine(rc.getLocation(), groupingTarget.location, 0, 255, 0);
+            } else if (rc.isMovementReady()
+                    && groupingTarget == null
+                    && cachedGroupingTarget != null
+                    && rc.getRoundNum() - cachedGroupingRound < 6
+                    && !rc.getLocation().isAdjacentTo(cachedGroupingTarget.location)){
+                indicator += String.format("cacheGroup%s,",cachedGroupingTarget.location);
+                Pathfinding.follow(rc, cachedGroupingTarget.location);
+                rc.setIndicatorLine(rc.getLocation(), cachedGroupingTarget.location, 0, 255, 0);
+            }
+        }
         if(builderTarget != null) Pathfinding.moveToward(rc, builderTarget);
         if(rc.isActionReady()) {
-            if ((enemyCnt > 1 || FastMath.rand256()%3==1) && rc.canBuild(TrapType.EXPLOSIVE, rc.getLocation())) {
-                rc.build(TrapType.EXPLOSIVE, rc.getLocation());
-            }
+            build(rc);
         }
         if(rc.isActionReady()) {
             RobotInfo target = attackTarget == null? backupTarget : attackTarget;
@@ -127,9 +147,29 @@ public strictfp class RobotPlayer {
         }
     }
 
+    static void build(RobotController rc) throws GameActionException  {
+        if(closeFriendsSize > 2 &&
+                (enemyCnt > 1 || rc.senseMapInfo(rc.getLocation()).getTeamTerritory()==rc.getTeam().opponent()) &&
+                rc.canBuild(TrapType.STUN, rc.getLocation()))
+            rc.build(TrapType.STUN, rc.getLocation());
+
+        else if ((enemyCnt > 1 || FastMath.rand256()%6==1 || rc.senseMapInfo(rc.getLocation()).getTeamTerritory()==rc.getTeam().opponent())
+                && rc.canBuild(TrapType.EXPLOSIVE, rc.getLocation())) {
+            rc.build(TrapType.EXPLOSIVE, rc.getLocation());
+        }
+
+    }
+
     static MapLocation myClosestSpawn = null;
     private static void macro(RobotController rc) throws GameActionException {
         findFlag(rc);
+        if(flagLoc == null && approxFlagLog != null) {
+            MapLocation potential = Communicator.approxToActual(rc, approxFlagLog);
+            if(!potential.equals(approxFlagLog)) {
+                flagLoc = potential;
+            }
+        }
+
 
         if (!rc.isMovementReady())
             return;
@@ -189,9 +229,10 @@ public strictfp class RobotPlayer {
         int minDist = Integer.MAX_VALUE;
         MapLocation potentialFlagLoc = null;
         boolean flagFound = false;
+        boolean approxFound = false;
         boolean pickedUp = false;
+        MapLocation oldApprox = approxFlagLog;
         for (FlagInfo flag : rc.senseNearbyFlags(GameConstants.VISION_RADIUS_SQUARED, rc.getTeam().opponent())) {
-            approxFlagLog = null;
             if (flag.getLocation().distanceSquaredTo(rc.getLocation()) < minDist) {
                 potentialFlagLoc = flag.getLocation();
                 pickedUp = flag.isPickedUp();
@@ -200,15 +241,22 @@ public strictfp class RobotPlayer {
             if (flagLoc != null && flag.getLocation().equals(flagLoc)) {
                 flagFound = true;
             }
+            if(oldApprox != null && flag.getLocation().equals(oldApprox)) approxFound = true;
         }
-        if(!flagFound || flagLoc == null) flagLoc = potentialFlagLoc;
 
-        if (flagLoc == null && approxFlagLog == null) {
+        if(!flagFound || flagLoc == null) {
+            flagLoc = potentialFlagLoc;
+            if(oldApprox != null && flagLoc != null) Communicator.reportFlag(rc, oldApprox, potentialFlagLoc);
+        }
+        if (flagLoc == null && (approxFlagLog == null || rc.getRoundNum() % 100 == 0)) {
             minDist = Integer.MAX_VALUE;
             for (MapLocation loc : rc.senseBroadcastFlagLocations()) {
+                if(loc.equals(oldApprox) && oldApprox.isWithinDistanceSquared(rc.getLocation(), 20) && !approxFound) {
+                    continue;
+                }
                 if (loc.distanceSquaredTo(rc.getLocation()) < minDist) {
                     approxFlagLog = loc;
-                    minDist = loc.distanceSquaredTo(rc.getLocation());
+                    minDist = loc.distanceSquaredTo(rc.getLocation())+50;
                 }
             }
         }
