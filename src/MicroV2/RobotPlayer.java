@@ -79,6 +79,7 @@ public strictfp class RobotPlayer {
         for(FlagInfo f : rc.senseNearbyFlags(2, opp)) {
             if (rc.canPickupFlag(f.getLocation()) && rc.getRoundNum() % 2 == 0) {
                 rc.pickupFlag(f.getLocation());
+                //System.out.println(rc.senseNearbyFlags(0)[0]);
                 target = null;
                 break;
             }

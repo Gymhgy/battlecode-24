@@ -1,9 +1,6 @@
-package v5;
+package v5stunagress;
 
 import battlecode.common.*;
-import battlecode.common.GlobalUpgrade;
-import battlecode.common.MapLocation;
-import battlecode.common.RobotController;
 
 import java.util.ArrayList;
 

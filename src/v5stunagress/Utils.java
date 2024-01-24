@@ -1,4 +1,4 @@
-package v5;
+package v5stunagress;
 
 import battlecode.common.GameActionException;
 import battlecode.common.MapLocation;
