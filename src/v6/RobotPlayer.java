@@ -1,8 +1,8 @@
-package v5stunagress;
+package v6;
 
 import battlecode.common.*;
 
-import java.awt.*;
+import java.util.ArrayList;
 import java.util.Objects;
 import java.util.Random;
 
@@ -33,16 +33,30 @@ public strictfp class RobotPlayer {
             (int)(1.50 * BASE_ATTACK),
     };
 
-    static int getAttack(RobotInfo r) {
-        return LEVEL_ATTACK[r.attackLevel];
-    }
-
     static int commId = 0;
     public static void spawn(RobotController rc) throws GameActionException {
         MapLocation[] spawnLocs = rc.getAllySpawnLocations();
+
+        int minDist = 10000000;
+        MapLocation spawn = null;
+        for(MapLocation spawnLoc : spawnLocs) {
+            if(!rc.canSpawn(spawnLoc)) continue;
+            getTask(rc, spawnLoc);
+            if(task != null) {
+                if (spawnLoc.distanceSquaredTo(task) < minDist) {
+                    minDist = spawnLoc.distanceSquaredTo(task);
+                    spawn = spawnLoc;
+                }
+            }
+            else if(spawn == null) {
+                spawn = spawnLoc;
+            }
+        }
         // Pick a random spawn location to attempt spawning in.
-        MapLocation randomLoc = spawnLocs[rng.nextInt(spawnLocs.length)];
-        if (rc.canSpawn(randomLoc)) rc.spawn(randomLoc);
+        //MapLocation randomLoc = spawnLocs[rng.nextInt(spawnLocs.length)];
+        //if (rc.canSpawn(randomLoc)) rc.spawn(spawn);
+        if(spawn != null && rc.canSpawn(spawn))
+            rc.spawn(spawn);
     }
 
 
@@ -86,11 +100,13 @@ public strictfp class RobotPlayer {
             rc.buyGlobal(GlobalUpgrade.HEALING);
         }
         else if(rc.canBuyGlobal(GlobalUpgrade.CAPTURING)) rc.buyGlobal(GlobalUpgrade.CAPTURING);
-
+        macroMoved = false;
         if(builder) {
             builderPlay(rc);
             return;
         }
+        compareStuns(rc);
+        sense(rc);
         for(FlagInfo f : rc.senseNearbyFlags(2, opp)) {
             if (rc.canPickupFlag(f.getLocation())) {
                 rc.pickupFlag(f.getLocation());
@@ -108,43 +124,25 @@ public strictfp class RobotPlayer {
                 }
             }
         }
-        if(rc.hasFlag()) {
+        micro(rc);
+        macro(rc);
+
+        if(rc.isActionReady()) {
             sense(rc);
-            macro(rc);
-            if(myFlag != null) {
-                Communicator.reportCarrying(Math.min(Math.max(0, 5 - ourTeamStrength), 15));
-            }
-            return;
+            micro(rc);
         }
-        sense(rc);
-        while(attack(rc)){}
-        if (!MicroAttacker.doMicro(rc.senseNearbyRobots(20, rc.getTeam().opponent()))){
-            macro(rc);
-        }
-        sense(rc);
-        while(attack(rc)){}
-        heal(rc);
         checkNearbyFlag(rc);
         if(myFlag != null) {
-            Communicator.reportCarrying(Math.min(Math.max(0, 5 - ourTeamStrength), 15));
+            Communicator.reportCarrying((int)Math.min(Math.max(0, 5 - ourTeamStrength), 15));
         }
+        updateStuns(rc);
+        recordStuns(rc);
     }
-
-    static boolean attack(RobotController rc) throws GameActionException {
-        if (!rc.isActionReady()) return false;
-        RobotInfo bestAttacker = chooseAttackTarget(rc);
-        if (bestAttacker != null){
-            if (rc.canAttack(bestAttacker.location)) rc.attack(bestAttacker.location);
-            return true;
-        }
-        return false;
-    }
-
     static boolean hadFlag = false;
     static MapLocation builderTarget = null;
     static void builderPlay(RobotController rc) throws GameActionException {
         sense(rc);
-        build(rc);
+        //build(rc);
         if(inDanger) {
             int minDis = Integer.MAX_VALUE;
             cachedEnemyLocation = null;
@@ -161,11 +159,9 @@ public strictfp class RobotPlayer {
 
         macro(rc);
 
+        build(rc);
         if(rc.isActionReady()) {
-            build(rc);
-        }
-        if(rc.isActionReady()) {
-            RobotInfo target = attackTarget;
+            RobotInfo target = attackTarget == null? backupTarget : attackTarget;
             if(target != null && rc.canAttack(target.location))
                 rc.attack(target.location);
         }
@@ -187,7 +183,7 @@ public strictfp class RobotPlayer {
         }
         cachedEnemyLocation = cachedEnemyLocation != null ? cachedEnemyLocation : taskOrTargetOrWhatever();
         Direction backDir = rc.getLocation().directionTo(
-                cachedEnemyLocation == null ? rc.adjacentLocation(directions[FastMath.rand256()%8]) : cachedEnemyLocation).opposite();
+                cachedEnemyLocation == null ? rc.adjacentLocation(directions[v5stunagress.FastMath.rand256()%8]) : cachedEnemyLocation).opposite();
         Direction[] dirs = {Direction.CENTER, backDir, backDir.rotateLeft(), backDir.rotateRight(),
                 backDir.rotateLeft().rotateLeft(), backDir.rotateRight().rotateRight()};
         boolean built = true;
@@ -202,7 +198,7 @@ public strictfp class RobotPlayer {
                         if(!rc.onTheMap(rc.getLocation().add(d).add(dd))) continue ;
                         if(rc.senseMapInfo(rc.getLocation().add(d).add(dd)).getTrapType() == TrapType.STUN) continue inner;
                     }
-                    if (closeFriendsSize > 2) {
+                    if (closeFriendsSize > 2 && enemyCnt > 4) {
                         rc.build(TrapType.STUN, rc.getLocation().add(d));
                         continue actionLoop;
                     }
@@ -211,7 +207,7 @@ public strictfp class RobotPlayer {
             }
             else {
 
-                if(builder && rc.getTeam().opponent() == rc.senseMapInfo(rc.getLocation()).getTeamTerritory()) {
+                if(builder && macroMoved) {
                     inner:
                     for(Direction d : dirs) {
                         if(!rc.onTheMap(rc.getLocation().add(d))) continue ;
@@ -220,8 +216,20 @@ public strictfp class RobotPlayer {
                             if(!rc.onTheMap(rc.getLocation().add(d).add(dd))) continue ;
                             if(rc.senseMapInfo(rc.getLocation().add(d).add(dd)).getTrapType() == TrapType.STUN) continue inner;
                         }
-                        if (friendCnt > 2) {
+                        if (friendCnt > 10) {
                             rc.build(TrapType.STUN, rc.getLocation().add(d));
+                            continue actionLoop;
+                        }
+                    }
+                }
+
+            }
+
+            if(builder && macroMoved) {
+                if (friendCnt + enemyCnt > 20) {
+                    for (Direction d : dirs) {
+                        if (rc.canBuild(TrapType.EXPLOSIVE, rc.getLocation().add(d))) {
+                            rc.build(TrapType.EXPLOSIVE, rc.getLocation().add(d));
                             continue actionLoop;
                         }
                     }
@@ -255,13 +263,14 @@ public strictfp class RobotPlayer {
             Pathfinding.moveToward(rc, myClosestSpawn);
             return;
         }
+        macroMoved = true;
         if(task != null) {
             Pathfinding.moveToward(rc, task);
             rc.setIndicatorLine(rc.getLocation(), task, 0,255,255);
             indicator += "t:"+task+",";
             return;
         }
-        /*if(closeFriendsSize < 3 && (rc.getRoundNum() - lastLauncherAttackRound) < 10) {
+        if(closeFriendsSize < 3 && (rc.getRoundNum() - lastLauncherAttackRound) < 10) {
             if (rc.isMovementReady() && groupingTarget != null ) {
                 indicator += "group,";
                 if (!rc.getLocation().isAdjacentTo(groupingTarget.location)) {
@@ -281,7 +290,7 @@ public strictfp class RobotPlayer {
                 Pathfinding.follow(rc, cachedGroupingTarget.location);
                 rc.setIndicatorLine(rc.getLocation(), cachedGroupingTarget.location, 0, 255, 0);
             }
-        }*/
+        }
 
         int byteCode = Clock.getBytecodesLeft();
         if(wander != null) {
@@ -301,17 +310,28 @@ public strictfp class RobotPlayer {
     }
 
     static void getTask(RobotController rc) throws GameActionException {
+        getTask(rc, rc.getLocation());
+    }
+    static void getTask(RobotController rc, MapLocation fromLoc) throws GameActionException {
         task = null;
         int minDist = Integer.MAX_VALUE;
         for(int i = 7; i-->4;) {
             if(rc.readSharedArray(i) == 0) continue;
             MapLocation loc = Communicator.getLoc(rc.readSharedArray(i) & 0b1111_1111_1111);
-            int dist = loc.distanceSquaredTo(rc.getLocation());
-            if(dist >= 9) continue;
+            int dist = loc.distanceSquaredTo(fromLoc);
+            if(dist >= 15) continue;
 
             if(minDist > dist && dist < rc.getMapWidth()*rc.getMapWidth()/9) {
-                minDist = loc.distanceSquaredTo(rc.getLocation());
+                minDist = loc.distanceSquaredTo(fromLoc);
                 task = loc;
+            }
+        }
+        if(task != null) {
+            for(Direction d : Direction.allDirections()) {
+                if(fromLoc.add(d).isAdjacentTo(task)) {
+                    if(rc.canFill(fromLoc.add(d)))
+                        rc.canFill(fromLoc.add(d));
+                }
             }
         }
         if(task == null) {
@@ -319,8 +339,8 @@ public strictfp class RobotPlayer {
             for (int i = 4; i-- > 1; ) {
                 if (rc.readSharedArray(i) == 0) continue;
                 MapLocation loc = Communicator.getLoc(rc.readSharedArray(i) & 0b1111_1111_1111);
-                if (minDist > loc.distanceSquaredTo(rc.getLocation())) {
-                    minDist = loc.distanceSquaredTo(rc.getLocation());
+                if (minDist > loc.distanceSquaredTo(fromLoc)) {
+                    minDist = loc.distanceSquaredTo(fromLoc);
                     task = loc;
                 }
             }
@@ -331,16 +351,16 @@ public strictfp class RobotPlayer {
             for(int i = 7; i-->4;) {
                 if(rc.readSharedArray(i) == 0) continue;
                 MapLocation loc = Communicator.getLoc(rc.readSharedArray(i) & 0b1111_1111_1111);
-                int dist = loc.distanceSquaredTo(rc.getLocation());
+                int dist = loc.distanceSquaredTo(fromLoc);
                 if(rc.readSharedArray(i) >> 12 == 0) continue;
 
                 if(minDist > dist /*&& dist < rc.getMapWidth()*rc.getMapWidth()/9*/) {
-                    minDist = loc.distanceSquaredTo(rc.getLocation());
+                    minDist = loc.distanceSquaredTo(fromLoc);
                     task = loc;
                 }
             }
         }
-        if(flagLoc != null && task != null && rc.getLocation().distanceSquaredTo(task) > rc.getLocation().distanceSquaredTo(flagLoc)) {
+        if(flagLoc != null && task != null && fromLoc.distanceSquaredTo(task)*1.5 > fromLoc.distanceSquaredTo(flagLoc)) {
             task = null;
         }
     }
@@ -495,7 +515,7 @@ public strictfp class RobotPlayer {
                 int canSee = 0;
                 for (int i = enemyCnt; --i >= 0;){
                     int newDis = rc.getLocation().add(dir).distanceSquaredTo(enemies[i].location);
-                    if (newDis <= 8) {
+                    if (newDis <= 14) {
                         canSee++;
                     }
                 }
@@ -518,12 +538,13 @@ public strictfp class RobotPlayer {
 
     //region <vars>
     static RobotInfo attackTarget = null;
+    static RobotInfo backupTarget = null;
     static RobotInfo chaseTarget = null;
 
-    private static final int MAX_ENEMY_CNT = 8;
+    private static final int MAX_ENEMY_CNT = 20;
     static RobotInfo[] enemies = new RobotInfo[MAX_ENEMY_CNT];
     static int enemyCnt;
-    private static final int MAX_FRIENDLY_CNT = 6;
+    private static final int MAX_FRIENDLY_CNT = 20;
     static RobotInfo[] allies = new RobotInfo[MAX_FRIENDLY_CNT];
     static int friendCnt;
 
@@ -531,7 +552,7 @@ public strictfp class RobotPlayer {
     static RobotInfo cachedGroupingTarget = null;
     static int cachedGroupingRound = -1000;
     static int lastLauncherAttackRound = -100;
-    static int ourTeamStrength = 1;
+    static double ourTeamStrength = 1;
     static MapLocation cachedEnemyLocation = null;
     static int cachedRound = 0;
     private static int closeFriendsSize = 0;
@@ -541,6 +562,7 @@ public strictfp class RobotPlayer {
         attackTarget = null;
         chaseTarget = null;
         groupingTarget = null;
+        backupTarget = null;
         ourTeamStrength = 1;
         friendCnt = 0;
         enemyCnt = 0;
@@ -564,7 +586,8 @@ public strictfp class RobotPlayer {
                 }
                 if(robot.buildLevel < 4)
                     allies[friendCnt++] = robot;
-                ourTeamStrength += 1;
+                if(robot.buildLevel < 4)
+                    ourTeamStrength += 1;
                 if (robot.location.distanceSquaredTo(rc.getLocation()) <= 8){
                     closeFriendsSize++;
                 }
@@ -574,12 +597,18 @@ public strictfp class RobotPlayer {
                     continue;
                 }
                 enemies[enemyCnt++] = robot;
-                if(!robot.hasFlag)
-                    ourTeamStrength -= 1;
+                double minMod = 1;
+                for(int i = boomedStunInfos.size(); i-->0;)
+                    if(boomedStunInfos.get(i).within(robot.location))
+                        minMod=Math.min(minMod, boomedStunInfos.get(i).modifier());
+                if(!robot.hasFlag) {
+                    ourTeamStrength -= 1 * minMod;
+                    rc.setIndicatorDot(robot.location, (int)(255*minMod), 0, 0);
+                }
                 if (robot.location.distanceSquaredTo(rc.getLocation()) > GameConstants.ATTACK_RADIUS_SQUARED) {
                     chaseTarget = robot;
                 }
-                if(robot.location.isWithinDistanceSquared(rc.getLocation(), 8) && !robot.hasFlag) inDanger = true;
+                if(robot.location.isWithinDistanceSquared(rc.getLocation(), 8)) inDanger = true;
             }
         }
         attackTarget = chooseAttackTarget(rc);
@@ -592,8 +621,40 @@ public strictfp class RobotPlayer {
         }
     }
 
+    static void recordStuns(RobotController rc) {
+        stunInfos = new ArrayList<>();
+        for(MapInfo mi : rc.senseNearbyMapInfos()) {
+            if(mi.getTrapType() == TrapType.STUN) {
+                stunInfos.add(new StunInfo(mi.getMapLocation()));
+            }
+        }
+    }
+    static ArrayList<StunInfo> boomedStunInfos = new ArrayList<>();
+    static ArrayList<StunInfo> stunInfos = new ArrayList<>();
+    static void compareStuns(RobotController rc) throws GameActionException {
+        for(int i = stunInfos.size(); i-->0; ) {
+            if(!rc.canSenseLocation(stunInfos.get(i).location)) {
+                continue;
+            }
+            if(rc.senseMapInfo(stunInfos.get(i).location).getTrapType()!=TrapType.STUN) {
+                stunInfos.get(i).boom();
+                boomedStunInfos.add(stunInfos.get(i));
+            }
+        }
+    }
+    static void updateStuns(RobotController rc) throws GameActionException {
+        for(int i = boomedStunInfos.size(); i-->0; ) {
+            if(!rc.canSenseLocation(boomedStunInfos.get(i).location)) {
+                boomedStunInfos.remove(i);
+                continue;
+            }
+            boomedStunInfos.get(i).tick();
+            if(boomedStunInfos.get(i).turnsLeft == 0) boomedStunInfos.remove(i);
+        }
+    }
+
     static void micro(RobotController rc) throws GameActionException {
-        RobotInfo target = attackTarget;
+        RobotInfo target = attackTarget == null? backupTarget : attackTarget;
         if (target != null) {
             if (target == attackTarget) {
                 lastLauncherAttackRound = rc.getRoundNum();
@@ -621,7 +682,7 @@ public strictfp class RobotPlayer {
                 kite(rc, cachedEnemyLocation);
             }
         }
-        if(friendCnt > 4 && enemyCnt > 4) build(rc);
+        if(friendCnt > 10 && enemyCnt > 10) build(rc);
         if(rc.isActionReady()) heal(rc);
         if (rc.getHealth() < HEALING_CUTOFF && inDanger && chaseTarget != null) {
             kite(rc, chaseTarget.location);
@@ -631,17 +692,17 @@ public strictfp class RobotPlayer {
             if (chaseTarget != null) {
                 cachedEnemyLocation = chaseTarget.location;
                 cachedRound = rc.getRoundNum();
-                if (ourTeamStrength > 2 && rc.isActionReady()) {
+                if (ourTeamStrength > 2) {
                     chase(rc, chaseTarget.location);
                 } else { // we are at disadvantage, pull back
-                    if(!chaseTarget.hasFlag)
-                        kite(rc, chaseTarget.location);
+                    kite(rc, chaseTarget.location);
                 }
-            } else if (cachedEnemyLocation != null && rc.getRoundNum() - cachedRound <= 2 && rc.isActionReady()) {
+            } else if (cachedEnemyLocation != null && rc.getRoundNum() - cachedRound <= 2) {
                 chase(rc, cachedEnemyLocation);
             }
         }
     }
+    static boolean macroMoved = false;
     static void kite(RobotController rc, MapLocation location) throws GameActionException {
 
         Direction backDir = rc.getLocation().directionTo(location).opposite();
@@ -654,7 +715,7 @@ public strictfp class RobotPlayer {
                 int canSee = 0;
                 for (int i = enemyCnt; --i >= 0;){
                     int newDis = rc.getLocation().add(dir).distanceSquaredTo(enemies[i].location);
-                    if (newDis <= 10 && !enemies[i].hasFlag) {
+                    if (newDis <= 10) {
                         canSee++;
                     }
                 }
@@ -673,11 +734,11 @@ public strictfp class RobotPlayer {
         }
     }
 
-    public static RobotInfo chooseAttackTarget(RobotController rc) throws GameActionException {
+    public static RobotInfo chooseAttackTarget(RobotController rc) {
         int minHitsReq = Integer.MAX_VALUE;
         int minDist = Integer.MIN_VALUE;
         int byteCode = Clock.getBytecodesLeft();
-        RobotInfo ret = null;/*
+        RobotInfo ret = null;
         for (int i = enemyCnt; i-->0;) {
             //if(Clock.getBytecodesLeft() < 1000) {
             //    System.out.println(byteCode + " " + Clock.getBytecodesLeft());
@@ -707,12 +768,8 @@ public strictfp class RobotPlayer {
                 minDist = dist;
             }
         }
-        return ret;*/
-
-        for (RobotInfo r : rc.senseNearbyRobots(4, rc.getTeam().opponent())) {
-            if(ret == null || r.health < ret.health) ret = r;
-        }
         return ret;
+
     }
 
     public static void heal(RobotController rc) throws GameActionException {
@@ -723,18 +780,14 @@ public strictfp class RobotPlayer {
         }
     }
 
-    public static RobotInfo chooseHealTarget(RobotController rc) throws GameActionException {
-        /*int minHp = Integer.MAX_VALUE;
+    public static RobotInfo chooseHealTarget(RobotController rc) {
+        int minHp = Integer.MAX_VALUE;
         RobotInfo ret = null;
         for(int i = 0; i < friendCnt; i++) {
             if(allies[i].health < minHp && rc.canHeal(allies[i].getLocation())) {
                 ret = allies[i];
                 minHp = allies[i].health;
             }
-        }*/
-        RobotInfo ret = null;
-        for(RobotInfo r : rc.senseNearbyRobots(4, rc.getTeam())){
-            if((ret == null || r.health < ret.health) && r.health != 1000) ret = r;
         }
         return ret;
     }
@@ -760,7 +813,6 @@ public strictfp class RobotPlayer {
         FastMath.initRand(rc);
         Communicator.init(rc);
         Utils.init(rc);
-        MicroAttacker.init(rc);
         while (true) {
 
             try {
