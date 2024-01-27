@@ -234,6 +234,29 @@ public class Communicator {
         }
     }
 
+    public static void rememberFlags(RobotController rc) throws GameActionException {
+        for(int i = 1; i < 4; i++)
+            myFlags[i-1] = getLoc(rc.readSharedArray(i));
+    }
+    static MapLocation[] myFlags = new MapLocation[3];
+    static int myFlagId=-1;
+    public static void droppedFlagAt(RobotController rc)throws GameActionException  {
+        if(myFlagId != -1) {
+            rc.writeSharedArray(myFlagId, getInt(rc.getLocation()));
+            return;
+        }
+        for(int i = 1; i < 64; i++) {
+            if(rc.readSharedArray(i) == 0) {
+                rc.writeSharedArray(i, getInt(rc.getLocation()));
+                myFlagId = i;
+                break;
+            }
+        }
+    }
+    public static void wipe(RobotController rc) throws GameActionException {
+        for (int i = 64; i-->0;) rc.writeSharedArray(i,0);
+    }
+
     static boolean opponentCapturing() {
         GlobalUpgrade[] g= rc.getGlobalUpgrades(rc.getTeam().opponent());
         for(GlobalUpgrade gg: g) if(gg == GlobalUpgrade.CAPTURING) return true;

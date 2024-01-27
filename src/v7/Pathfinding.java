@@ -106,13 +106,14 @@ public class Pathfinding {
 
     static boolean dig = false;
 
+    static String indicator;
     static String moveToward(RobotController rc, MapLocation location) throws GameActionException {
         // reset queue when target location changes or there's gap in between calls
         if (!location.equals(lastPathingTarget) || lastPathingTurn < rc.getRoundNum() - 4) {
             pathingCnt = 0;
             stuckCnt = 0;
         }
-        String indicator = "";
+        indicator = "";
         indicator += String.format("2%sc%dt%s,", location, pathingCnt, currentTurnDir == 0? "L":"R");
         if (rc.isMovementReady()) {
             // we increase stuck count only if it's a new turn (optim for empty carriers)
@@ -348,6 +349,7 @@ public class Pathfinding {
 
     static void moveDig(RobotController rc, Direction d) throws GameActionException {
         MapLocation loc = rc.getLocation().add(d);
+        MapLocation myLoc = rc.getLocation();
         if(!rc.canSenseLocation(loc)) return;
         if(rc.canMove(d)) {
             rc.move(d);
@@ -355,16 +357,18 @@ public class Pathfinding {
         else if(rc.senseMapInfo(loc).isWater()) {
 
             if(d.dx*d.dy==0) {
-                MapLocation rl = loc.add(d.rotateLeft()), rr = loc.add(d.rotateRight());
+                MapLocation rl = myLoc.add(d.rotateLeft()), rr = myLoc.add(d.rotateRight());
                 if(rc.canSenseLocation(rl) && rc.senseMapInfo(rl).isPassable()) {
                     if (rc.canMove(d.rotateLeft())) {
                         rc.move(d.rotateLeft());
+                        indicator += "water-RL,";
                     }
                     return;
                 }
                 else if(rc.canSenseLocation(rr) && rc.senseMapInfo(rr).isPassable()) {
                     if (rc.canMove(d.rotateRight())) {
                         rc.move(d.rotateRight());
+                        indicator += "water-RR,";
                     }
                     return;
                 }
@@ -383,14 +387,25 @@ public class Pathfinding {
         if (loc.equals(rc.getLocation())) return true;
         if (!rc.canSenseLocation(loc)) return true;
         MapInfo mi = rc.senseMapInfo(loc);
+        if(rc.hasFlag() && rc.getRoundNum() < 201) {
+            for(FlagInfo f : rc.senseNearbyFlags(20, rc.getTeam())) {
+                if (f.getLocation().isWithinDistanceSquared(loc,25)) return false;
+            }
+        }
         if (mi.isWall() || mi.isDam()) return false;
         if (mi.isWater()) {
+            for(MapLocation myFlag : Communicator.myFlags) {
+                if(myFlag == null) continue;
+                if(myFlag.isWithinDistanceSquared(mi.getMapLocation(), 10)) return false;
+            }
+            if(rc.hasFlag()) return false;
             if(mi.getCrumbs() > 0) return true;
             if (mi.getTeamTerritory() == rc.getTeam())
                 /*if (adjacentToDam(rc, mi.getMapLocation())) return true;
                 else*/ if((loc.x + loc.y) % 2 == 1)return false;
+                return true;
         }
-        if(rc.hasFlag()) return true;
+        if(rc.hasFlag() && rc.getRoundNum() > 201) return true;
 
         for (Direction d : Direction.allDirections()) {
             if(!rc.canSenseLocation(loc.add(d))) continue;

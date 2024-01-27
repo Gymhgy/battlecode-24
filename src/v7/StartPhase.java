@@ -19,12 +19,66 @@ public class StartPhase {
     static MapLocation[] flags;
     static boolean random = false;
     static MapLocation target = null;
-    public static void play(RobotController rc, boolean builder) throws GameActionException {
+    public static void play(RobotController rc, boolean builder, boolean sentry) throws GameActionException {
         if(flags == null)  flags = rc.senseBroadcastFlagLocations();
         if(!rc.isSpawned()) {
             spawn(rc);
             return;
         }
+
+        if(rc.getRoundNum() == 199) Communicator.rememberFlags(rc);
+        if (sentry) {
+            rc.setIndicatorDot(rc.getLocation(), 255,255,255);
+            if(rc.getRoundNum() < 198) {
+                for(Direction d : Direction.allDirections()) {
+                    if (rc.canPickupFlag(rc.getLocation().add(d))) {
+                        rc.pickupFlag(rc.getLocation().add(d));
+                    }
+                    if(!rc.onTheMap(rc.getLocation().add(d))) {
+                        Communicator.droppedFlagAt(rc);
+                        Communicator.rememberFlags(rc);
+                        return;
+                    }
+                }
+
+                target = flags[0];
+                for(MapLocation enemy : flags) {
+                    if(target.distanceSquaredTo(rc.getLocation()) > enemy.distanceSquaredTo(rc.getLocation())) {
+                        target = enemy;
+                    }
+                }
+                MapLocation myLoc = rc.getLocation();
+                int targetX = myLoc.x * 2 - target.x;
+                int targetY = myLoc.y * 2 - target.y;
+                target = new MapLocation(targetX, targetY);
+                rc.setIndicatorLine(rc.getLocation(), target, 255,252,123);
+                navigateToLocationFuzzy(rc, target);
+            }
+            else {
+                switch(rc.getRoundNum()) {
+                    case 198:
+                        rc.dropFlag(rc.getLocation());
+                        break;
+                    case 199:
+                        if(rc.canBuild(TrapType.STUN, rc.getLocation())) {
+                            rc.build(TrapType.STUN, rc.getLocation());
+                        }
+                        break;
+                    case 200:
+                        if(rc.canBuild(TrapType.WATER, rc.getLocation().add(rc.getLocation().directionTo(flags[0])))) {
+                            rc.build(TrapType.WATER, rc.getLocation().add(rc.getLocation().directionTo(flags[0])));
+                        }
+                        Communicator.wipe(rc);
+                        return;
+                    default:
+                        break;
+                }
+            }
+            Communicator.droppedFlagAt(rc);
+            Communicator.rememberFlags(rc);
+            return;
+        }
+
 
         if (builder) {
             for(Direction d : Direction.allDirections()) {
@@ -36,7 +90,6 @@ public class StartPhase {
                         rc.dig(loc);
                         break;
                     }
-
                 }
                 /*if(rc.canSenseLocation(loc) && rc.getLevel(SkillType.BUILD) >= 4)
                     if(rc.senseMapInfo(loc).getSpawnZoneTeamObject()==rc.getTeam())
@@ -84,6 +137,8 @@ public class StartPhase {
         }
     }
 
+
+
     public static void acquireTarget(RobotController rc) throws GameActionException {
         MapLocation[] c = rc.senseNearbyCrumbs(GameConstants.VISION_RADIUS_SQUARED);
         int dist = Integer.MAX_VALUE;
@@ -115,4 +170,36 @@ public class StartPhase {
             }
         }
     }
+    
+    static boolean canPass(RobotController rc, Direction d) throws GameActionException {
+        for(MapLocation f : Communicator.myFlags) {
+            if (f == null) continue;
+            if (f.isWithinDistanceSquared(rc.getLocation(), 2)) continue;
+            if (f.isWithinDistanceSquared(rc.getLocation().add(d),36)) return false;
+        }
+        return rc.canMove(d);
+    }
+    public static boolean navigateToLocationFuzzy(RobotController rc, MapLocation targetLoc) throws GameActionException {
+        MapLocation myLoc = rc.getLocation();
+
+        if (canPass(rc, myLoc.directionTo(targetLoc))) {
+            rc.move(myLoc.directionTo(targetLoc));
+        } else if (canPass(rc, myLoc.directionTo(targetLoc).rotateLeft())) {
+            rc.move(myLoc.directionTo(targetLoc).rotateLeft());
+        } else if (canPass(rc, myLoc.directionTo(targetLoc).rotateRight())) {
+            rc.move(myLoc.directionTo(targetLoc).rotateRight());
+        } else if (canPass(rc, myLoc.directionTo(targetLoc).rotateLeft().rotateLeft())) {
+            rc.move(myLoc.directionTo(targetLoc).rotateLeft().rotateLeft());
+        } else if (canPass(rc, myLoc.directionTo(targetLoc).rotateRight().rotateRight())) {
+            rc.move(myLoc.directionTo(targetLoc).rotateRight().rotateRight());
+        } else if (canPass(rc, myLoc.directionTo(targetLoc).rotateLeft().rotateLeft().rotateLeft())) {
+            rc.move(myLoc.directionTo(targetLoc).rotateLeft().rotateLeft().rotateLeft());
+        } else if (canPass(rc, myLoc.directionTo(targetLoc).rotateRight().rotateRight().rotateRight())) {
+            rc.move(myLoc.directionTo(targetLoc).rotateRight().rotateRight().rotateRight());
+        } else if (canPass(rc, myLoc.directionTo(targetLoc).rotateRight().rotateRight().rotateRight().rotateRight())) {
+            rc.move(myLoc.directionTo(targetLoc).rotateRight().rotateRight().rotateRight().rotateRight());
+        }
+        return true;
+    }
+
 }

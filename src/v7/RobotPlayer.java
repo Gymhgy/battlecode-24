@@ -62,13 +62,14 @@ public strictfp class RobotPlayer {
 
     static MapLocation target;
     static boolean builder = false;
+    static boolean sentry = false;
     static MapLocation oldLoc;
     static Team opp;
     static FlagInfo myFlag = null;
     public static void play(RobotController rc) throws GameActionException {
         indicator = "";
         if (rc.getRoundNum() <= GameConstants.SETUP_ROUNDS) {
-            StartPhase.play(rc, builder);
+            StartPhase.play(rc, builder, sentry);
             return;
         }
         if(rc.getRoundNum() % 100 == 1) Communicator.reportBroadcast();
@@ -110,6 +111,7 @@ public strictfp class RobotPlayer {
         for(FlagInfo f : rc.senseNearbyFlags(2, opp)) {
             if (rc.canPickupFlag(f.getLocation())) {
                 rc.pickupFlag(f.getLocation());
+                if(rc.senseMapInfo(rc.getLocation()).getSpawnZoneTeamObject()==rc.getTeam())break;
                 myFlag = f;
                 target = null;
                 break;
@@ -216,7 +218,7 @@ public strictfp class RobotPlayer {
                             if(!rc.onTheMap(rc.getLocation().add(d).add(dd))) continue ;
                             if(rc.senseMapInfo(rc.getLocation().add(d).add(dd)).getTrapType() == TrapType.STUN) continue inner;
                         }
-                        if (friendCnt > 10) {
+                        if (friendCnt + enemyCnt*0.5 > 10) {
                             rc.build(TrapType.STUN, rc.getLocation().add(d));
                             continue actionLoop;
                         }
@@ -226,9 +228,11 @@ public strictfp class RobotPlayer {
             }
 
             if(builder && macroMoved) {
-                if (friendCnt + enemyCnt > 20) {
+                if (friendCnt + enemyCnt > 20 ||
+                        (rc.getCrumbs() > 1000 && friendCnt + 1.5*enemyCnt > 15)) {
                     for (Direction d : dirs) {
                         if (rc.canBuild(TrapType.EXPLOSIVE, rc.getLocation().add(d))) {
+                            if(rc.senseMapInfo(rc.getLocation().add(d)).isWater()) continue;
                             rc.build(TrapType.EXPLOSIVE, rc.getLocation().add(d));
                             continue actionLoop;
                         }
@@ -614,10 +618,12 @@ public strictfp class RobotPlayer {
         attackTarget = chooseAttackTarget(rc);
 
         //Sense if allied flags are taken
+        checkFlag:
         for(FlagInfo f : rc.senseNearbyFlags(20, rc.getTeam())) {
-            if(!Objects.equals(f.getLocation(), Communicator.getLoc(f.getID()+1))) {
-                Communicator.reportAllyFlagTaken(f.getLocation(), f.getID());
+            for(int i = 3; i-->0;) {
+                if (Communicator.myFlags[i].equals(f.getLocation())) break checkFlag;
             }
+            Communicator.reportAllyFlagTaken(f.getLocation(), f.getID());
         }
     }
 
@@ -813,12 +819,14 @@ public strictfp class RobotPlayer {
         FastMath.initRand(rc);
         Communicator.init(rc);
         Utils.init(rc);
+        if(Utils.commId <= 6 && Utils.commId > 3) sentry = true;
         while (true) {
 
             try {
                 play(rc);
                 endTurn(rc);
-                Communicator.cleanup();
+                if(rc.getRoundNum() > 200)
+                    Communicator.cleanup();
             } catch (GameActionException e) {
                 System.out.println("GameActionException");
                 e.printStackTrace();
