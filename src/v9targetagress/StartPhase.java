@@ -1,4 +1,4 @@
-package v7;
+package v9targetagress;
 
 import battlecode.common.*;
 
@@ -19,6 +19,8 @@ public class StartPhase {
     static MapLocation[] flags;
     static boolean random = false;
     static MapLocation target = null;
+    static int flagId = 0;
+    static MapLocation dropSpot;
     public static void play(RobotController rc, boolean builder, boolean sentry) throws GameActionException {
         if(flags == null)  flags = Communicator.senseFlagsAtStart(rc);
         if(!rc.isSpawned()) {
@@ -34,8 +36,10 @@ public class StartPhase {
                 for(Direction d : Direction.allDirections()) {
                     if (rc.canPickupFlag(rc.getLocation().add(d))) {
                         rc.pickupFlag(rc.getLocation().add(d));
+                        flagId = Communicator.getInt(rc.getLocation().add(d))-1;
                     }
                     if(!rc.onTheMap(rc.getLocation().add(d))) {
+                        dropSpot = rc.getLocation();
                         Communicator.droppedFlagAt(rc);
                         Communicator.rememberFlags(rc);
                         return;
@@ -61,9 +65,9 @@ public class StartPhase {
                         rc.dropFlag(rc.getLocation());
                         break;
                     case 199:
-                        if(rc.canBuild(TrapType.STUN, rc.getLocation())) {
+                        /*if(rc.canBuild(TrapType.STUN, rc.getLocation())) {
                             rc.build(TrapType.STUN, rc.getLocation());
-                        }
+                        }*/
                         break;
                     case 200:
                         if(rc.canBuild(TrapType.WATER, rc.getLocation().add(rc.getLocation().directionTo(flags[0])))) {
@@ -75,6 +79,7 @@ public class StartPhase {
                         break;
                 }
             }
+            dropSpot = rc.getLocation();
             Communicator.droppedFlagAt(rc);
             Communicator.rememberFlags(rc);
             return;
@@ -171,7 +176,7 @@ public class StartPhase {
             }
         }
     }
-    
+
     static boolean canPass(RobotController rc, Direction d) throws GameActionException {
         for(MapLocation f : Communicator.myFlags) {
             if (f == null) continue;

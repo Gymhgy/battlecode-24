@@ -1,4 +1,4 @@
-package v7;
+package v9;
 
 import battlecode.common.*;
 
@@ -157,7 +157,7 @@ public class Communicator {
             return;
         }
         int e = getInt(rc.getLocation());
-        e |= (prio << 12);
+        e |= (4 << 12);
         rc.writeSharedArray(idx, e);
     }
     public static void decreasePrio(int idx) throws GameActionException {
@@ -182,7 +182,7 @@ public class Communicator {
             }
             return;
         }
-        rc.writeSharedArray(idx, 0);
+        rc.writeSharedArray(idx, (rc.readSharedArray(idx) & 0b1111_1111_1111) | (4 << 12));
     }
     public static void reportFlagCapture(int fId) throws GameActionException {
         int idx = 0;
@@ -211,6 +211,24 @@ public class Communicator {
             }
         }
     }
+
+    public static void recordNeverSniff(MapLocation loc) throws GameActionException  {
+        for(int i = 37; i < 53; i++) {
+            if(rc.readSharedArray(i) == 0) {
+                rc.writeSharedArray(i, getInt(loc));
+                return;
+            }
+        }
+    }
+    public static boolean shouldSniff(MapLocation loc) throws GameActionException {
+        for(int i = 37; i < 53; i++) {
+            if(rc.readSharedArray(i) == getInt(loc)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     static int CAPTURED = 65535;
     static void reportAllyFlagTaken(MapLocation flag, int id) throws GameActionException {
         int idx = Utils.defenseFlagOffset(id) + 1;
@@ -221,7 +239,7 @@ public class Communicator {
 
     static void cleanup() throws GameActionException {
         if(Utils.commId != 50) return;
-        for(int i = 4; i--> 1;) {
+        for(int i = 7; i--> 1;) {
             int e = rc.readSharedArray(i);
             if(e == 0) continue;
             int countdown = e >> 12;
@@ -232,6 +250,7 @@ public class Communicator {
             e = (e & 0b1111_1111_1111) | ((countdown-1)<<12);
             rc.writeSharedArray(i, e);
         }
+        for(int i = 13; i<=36; i++) rc.writeSharedArray(i, 0);
     }
 
     public static void rememberFlags(RobotController rc) throws GameActionException {
@@ -284,6 +303,58 @@ public class Communicator {
 
     }
 
+    //13,14,15,16,17,18,19,20
+    //21,22,23,24,25,26,27,28
+    //29,30,31,32,33,34,35,36
+    static void reportCannotPickup(int fid, int myId) throws GameActionException {
+        int idx = 0;
+        for (int i = 58; i-- > 55; ) {
+            if (rc.readSharedArray(i) == fid) {
+                //57 --> 29 --> 2
+                //56 --> 21 --> 1
+                //55 --> 13 --> 0
+                idx = 2*(i - 55)+13;
+            }
+        }
+        for(int i = 0; i < 8; i++) {
+            if(rc.readSharedArray(i+idx) == 0) {
+                rc.writeSharedArray(i+idx, myId);
+                break;
+            }
+        }
+    }
+
+    static boolean canPickup(int fid, int theirId) throws GameActionException {
+        int idx = 0;
+        for (int i = 58; i-- > 55; ) {
+            if (rc.readSharedArray(i) == fid) {
+                //57 --> 29 --> 2
+                //56 --> 21 --> 1
+                //55 --> 13 --> 0
+                idx = 2*(i - 55)+13;
+            }
+        }
+        for(int i = 0; i < 8; i++) {
+            if(rc.readSharedArray(i) == theirId) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static final int SNIFF_CNT = 3;
+    static boolean canSniff() throws GameActionException{
+        if(rc.readSharedArray(12) < SNIFF_CNT) {
+            return true;
+        }
+        return false;
+    }
+    static void addSniffer() throws GameActionException{
+        rc.writeSharedArray(12, rc.readSharedArray(12) + 1);
+    }
+    static void removeSniffer() throws GameActionException{
+        rc.writeSharedArray(12, rc.readSharedArray(12) - 1);
+    }
     static boolean opponentCapturing() {
         GlobalUpgrade[] g= rc.getGlobalUpgrades(rc.getTeam().opponent());
         for(GlobalUpgrade gg: g) if(gg == GlobalUpgrade.CAPTURING) return true;

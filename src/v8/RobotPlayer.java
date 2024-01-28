@@ -1,9 +1,8 @@
-package v7;
+package v8;
 
 import battlecode.common.*;
 
 import java.util.ArrayList;
-import java.util.Objects;
 import java.util.Random;
 
 public strictfp class RobotPlayer {
@@ -68,6 +67,7 @@ public strictfp class RobotPlayer {
     static FlagInfo myFlag = null;
     public static void play(RobotController rc) throws GameActionException {
         indicator = "";
+        noMacro = false;
         if (rc.getRoundNum() <= GameConstants.SETUP_ROUNDS) {
             StartPhase.play(rc, builder, sentry);
             return;
@@ -249,24 +249,32 @@ public strictfp class RobotPlayer {
     static MapLocation taskOrTargetOrWhatever() {
         return (task!=null?task : (flagLoc != null ? flagLoc : approxFlagLog));
     }
+
+    static void hasFlagBehavior(RobotController rc) throws GameActionException {
+        int minDist = Integer.MAX_VALUE;
+        if (myClosestSpawn == null) {
+            for (MapLocation spawn : rc.getAllySpawnLocations()) {
+                if(spawn.distanceSquaredTo(rc.getLocation()) < minDist) {
+                    minDist = spawn.distanceSquaredTo(rc.getLocation());
+                    myClosestSpawn = spawn;
+                }
+            }
+        }
+        if(!rc.isMovementReady()) {
+
+        }
+        Pathfinding.moveToward(rc, myClosestSpawn);
+        return;
+    }
+
     private static void macro(RobotController rc) throws GameActionException {
         findFlag(rc);
         getTask(rc);
         if (!rc.isMovementReady())
             return;
 
-        int minDist = Integer.MAX_VALUE;
         if(rc.hasFlag()) {
-            if (myClosestSpawn == null) {
-                for (MapLocation spawn : rc.getAllySpawnLocations()) {
-                    if(spawn.distanceSquaredTo(rc.getLocation()) < minDist) {
-                        minDist = spawn.distanceSquaredTo(rc.getLocation());
-                        myClosestSpawn = spawn;
-                    }
-                }
-            }
-            Pathfinding.moveToward(rc, myClosestSpawn);
-            return;
+            hasFlagBehavior(rc);
         }
         macroMoved = true;
         if(task != null) {
@@ -297,6 +305,7 @@ public strictfp class RobotPlayer {
             }
         }
 
+        if(noMacro) return;
         int byteCode = Clock.getBytecodesLeft();
         if(wander != null) {
             indicator+="wander,";
@@ -536,6 +545,7 @@ public strictfp class RobotPlayer {
         if (bestDir != null) {
             indicator += String.format("chase%s,", location);
             rc.move(bestDir);
+            noMacro = true;
         } else {
             indicator += "failchase,";
         }
@@ -546,10 +556,10 @@ public strictfp class RobotPlayer {
     static RobotInfo backupTarget = null;
     static RobotInfo chaseTarget = null;
 
-    private static final int MAX_ENEMY_CNT = 20;
+    private static final int MAX_ENEMY_CNT = 25;
     static RobotInfo[] enemies = new RobotInfo[MAX_ENEMY_CNT];
     static int enemyCnt;
-    private static final int MAX_FRIENDLY_CNT = 20;
+    private static final int MAX_FRIENDLY_CNT = 25;
     static RobotInfo[] allies = new RobotInfo[MAX_FRIENDLY_CNT];
     static int friendCnt;
 
@@ -674,6 +684,7 @@ public strictfp class RobotPlayer {
                 }
                 rc.attack(target.location);
             }
+            inDanger = false;
             // find the closest guy alive, cache him and kite back
             int minDis = Integer.MAX_VALUE;
             cachedEnemyLocation = null;
@@ -685,7 +696,8 @@ public strictfp class RobotPlayer {
                     minDis = dis;
                 }
             }
-            if (cachedEnemyLocation != null && rc.isMovementReady()) {
+            if(minDis <= 4) inDanger = true;
+            if (cachedEnemyLocation != null && rc.isMovementReady() && inDanger) {
                 kite(rc, cachedEnemyLocation);
             }
         }
@@ -702,13 +714,15 @@ public strictfp class RobotPlayer {
                 if (ourTeamStrength > 2) {
                     chase(rc, chaseTarget.location);
                 } else { // we are at disadvantage, pull back
-                    kite(rc, chaseTarget.location);
+                    if(inDanger)
+                        kite(rc, chaseTarget.location);
                 }
             } else if (cachedEnemyLocation != null && rc.getRoundNum() - cachedRound <= 2) {
                 chase(rc, cachedEnemyLocation);
             }
         }
     }
+    static boolean noMacro = false;
     static boolean macroMoved = false;
     static void kite(RobotController rc, MapLocation location) throws GameActionException {
 
@@ -717,26 +731,38 @@ public strictfp class RobotPlayer {
                 backDir.rotateLeft().rotateLeft(), backDir.rotateRight().rotateRight()};
         Direction bestDir = null;
         int minCanSee = Integer.MAX_VALUE;
+        int maxFriends = Integer.MIN_VALUE;
         for (Direction dir : dirs) {
             if (rc.canMove(dir)) {
                 int canSee = 0;
+                int friends = 0;
                 for (int i = enemyCnt; --i >= 0;){
                     int newDis = rc.getLocation().add(dir).distanceSquaredTo(enemies[i].location);
                     if (newDis <= 10) {
                         canSee++;
                     }
                 }
+                for (int i = friendCnt; --i >= 0;){
+                    int newDis = rc.getLocation().add(dir).distanceSquaredTo(allies[i].location);
+                    if (newDis <= 4) {
+                        friends++;
+                    }
+                }
                 if (minCanSee > canSee) {
                     bestDir = dir;
                     minCanSee = canSee;
-                }  else if (minCanSee == canSee && isDiagonal(bestDir) && !isDiagonal(dir)) {
-                    // from Cow: we prefer non-diagonal moves to preserve formation
+                }
+                else if (minCanSee == canSee && friends > maxFriends) {
+                    maxFriends = friends;
+                    bestDir = dir;
+                } else if (minCanSee == canSee && friends == maxFriends && isDiagonal(bestDir) && !isDiagonal(dir)) {
                     bestDir = dir;
                 }
             }
         }
-        if (bestDir != null && bestDir != Direction.CENTER){
+        if (bestDir != null){
             indicator += "kite,";
+            noMacro = true;
             rc.move(bestDir);
         }
     }

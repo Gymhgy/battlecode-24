@@ -1,4 +1,4 @@
-package v7;
+package v8defend;
 
 import battlecode.common.*;
 
