@@ -1,4 +1,4 @@
-package v10official;
+package v10off1;
 
 import battlecode.common.*;
 
@@ -24,7 +24,7 @@ public class StartPhase {
     public static void play(RobotController rc, boolean builder, boolean sentry) throws GameActionException {
         if(flags == null)  flags = Communicator.senseFlagsAtStart(rc);
         if(!rc.isSpawned()) {
-            spawn(rc, sentry);
+            spawn(rc);
             if(!rc.isSpawned())
                 return;
         }
@@ -33,36 +33,25 @@ public class StartPhase {
         if (sentry) {
             rc.setIndicatorDot(rc.getLocation(), 255,255,255);
             if(rc.getRoundNum() < 198) {
-                MapLocation closestFlag = null;
-                for(MapLocation f : Communicator.myFlags) {
-                    if (f == null) continue;
-                    if (f.isWithinDistanceSquared(rc.getLocation(), 2)) continue;
-                    if (f.isWithinDistanceSquared(rc.getLocation(),36)) closestFlag = f;
-                }
                 for(Direction d : Direction.allDirections()) {
                     if (rc.canPickupFlag(rc.getLocation().add(d))) {
                         rc.pickupFlag(rc.getLocation().add(d));
                         flagId = Communicator.getInt(rc.getLocation().add(d))-1;
                     }
-                    if(!rc.onTheMap(rc.getLocation().add(d)) && closestFlag == null) {
+                    if(!rc.onTheMap(rc.getLocation().add(d))) {
                         dropSpot = rc.getLocation();
                         Communicator.droppedFlagAt(rc);
                         Communicator.rememberFlags(rc);
                         return;
                     }
                 }
-                if(closestFlag == null) {
-                    target = flags[0];
-                    for (MapLocation enemy : flags) {
-                        if (target.distanceSquaredTo(rc.getLocation()) > enemy.distanceSquaredTo(rc.getLocation())) {
-                            target = enemy;
-                        }
+
+                target = flags[0];
+                for(MapLocation enemy : flags) {
+                    if(target.distanceSquaredTo(rc.getLocation()) > enemy.distanceSquaredTo(rc.getLocation())) {
+                        target = enemy;
                     }
                 }
-                else {
-                    target = closestFlag;
-                }
-
                 MapLocation myLoc = rc.getLocation();
                 int targetX = myLoc.x * 2 - target.x;
                 int targetY = myLoc.y * 2 - target.y;
@@ -106,8 +95,8 @@ public class StartPhase {
                     else*/ if(rc.canDig(loc) && rc.getLevel(SkillType.BUILD) != 6 && rc.senseMapInfo(loc).getCrumbs()==0) {
                         boolean shouldBuild = true;
                         for (Direction dd : Direction.allDirections()) {
-                            if(!rc.canSenseLocation(loc.add(dd))) continue;
-                            if (rc.senseMapInfo(loc.add(dd)).isDam() || rc.senseMapInfo(loc.add(dd)).isWall())
+                            if(!rc.canSenseLocation(loc.add(d).add(dd))) continue;
+                            if (rc.senseMapInfo(loc.add(d).add(dd)).isDam() || rc.senseMapInfo(loc.add(d).add(dd)).isWall())
                                 shouldBuild = false;
                         }
                         if(shouldBuild) {
@@ -190,11 +179,7 @@ public class StartPhase {
     }
 
     static MapLocation mySpawn;
-    public static void spawn(RobotController rc, boolean sentry) throws GameActionException {
-        if(sentry) {
-            rc.spawn(Utils.spawnCenters[Utils.commId%3]);
-            return;
-        }
+    public static void spawn(RobotController rc) throws GameActionException {
         for(MapLocation spawn : Utils.spawnGroups[Utils.commId%3]) {
             if (rc.canSpawn(spawn)) {
                 rc.spawn(spawn);

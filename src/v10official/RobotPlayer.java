@@ -77,6 +77,7 @@ public strictfp class RobotPlayer {
     static boolean sniff = false;
     public static void play(RobotController rc) throws GameActionException {
         indicator = "";
+        indicator+=Utils.commId+":";
         noMacro = false;
         if (rc.getRoundNum() <= GameConstants.SETUP_ROUNDS) {
             StartPhase.play(rc, builder, sentry);
@@ -149,10 +150,10 @@ public strictfp class RobotPlayer {
             return;
         }*/
         justDropped = false;
-        if(builder) {
+        /*if(builder) {
             builderPlay(rc);
             return;
-        }
+        }*/
         compareStuns(rc);
         sense(rc);
         tryPickFlag(rc);
@@ -246,9 +247,7 @@ public strictfp class RobotPlayer {
             }
             kite(rc, cachedEnemyLocation);
         }
-
         macro(rc);
-
         build(rc);
         if(rc.isActionReady()) {
             RobotInfo target = attackTarget == null? backupTarget : attackTarget;
@@ -338,6 +337,39 @@ public strictfp class RobotPlayer {
     }
     static MapLocation actualFlagLoc;
     static void tryPickFlag(RobotController rc) throws GameActionException {
+        /*boolean picked = false;
+        if(!rc.isActionReady()) return;
+        for(FlagInfo f : rc.senseNearbyFlags(2, opp)) {
+            if(!rc.canPickupFlag(f.getLocation())) continue;
+            int idx = 0;
+            for (int i = 58; i-- > 55; ) {
+                if (rc.readSharedArray(i) == f.getID()) {
+                    //57 --> 29 --> 2
+                    //56 --> 21 --> 1
+                    //55 --> 13 --> 0
+                    idx = i-22;
+                    break;
+                }
+            }
+            if(rc.readSharedArray(idx) == 0) {
+                rc.pickupFlag(f.getLocation());
+                picked = true;
+            }
+            if(f.getLocation().add(Communicator.readThrowDirection(f.getID())).equals(rc.getLocation())) {
+                rc.pickupFlag(f.getLocation());
+                picked = true;
+            }
+            if(picked) {
+                if (rc.senseMapInfo(rc.getLocation()).getSpawnZoneTeamObject() == rc.getTeam()) {
+                    Communicator.reportFlagCapture(f.getID());
+                    break;
+                }
+                myFlag = f;
+                break;
+            }
+        }*/
+
+
         boolean picked = false;
         for(FlagInfo f : rc.senseNearbyFlags(2, opp)) {
             if(!rc.canPickupFlag(f.getLocation())) continue;
@@ -371,7 +403,6 @@ public strictfp class RobotPlayer {
                     for(int i = friendCnt; i-->0;){
                         RobotInfo friend = allies[i];
                         if(!Communicator.canPickup(f.getID(), friend.ID)) continue;
-                        if(friend.buildLevel > 3) continue;
                         if(friend.getLocation().isWithinDistanceSquared(f.getLocation(), 2)) {
                             if(friend.getLocation().distanceSquaredTo(closest) < rc.getLocation().distanceSquaredTo(closest)) {
                                 shouldpickup = false;
@@ -402,6 +433,39 @@ public strictfp class RobotPlayer {
     }
 
     static int assignedSpawnAt;
+    /*static void hasFlagBehavior(RobotController rc) throws GameActionException {
+        int minDist = Integer.MAX_VALUE;
+        if (myClosestSpawn == null || rc.getRoundNum() - assignedSpawnAt > 50) {
+            MapLocation pot = null;
+            for (MapLocation spawn : rc.getAllySpawnLocations()) {
+                if(myClosestSpawn != null && spawn.isWithinDistanceSquared(myClosestSpawn, 2)) continue;
+                if(spawn.distanceSquaredTo(rc.getLocation()) < minDist) {
+                    minDist = spawn.distanceSquaredTo(rc.getLocation());
+                    pot = spawn;
+                    assignedSpawnAt = rc.getRoundNum();
+                }
+            }
+            myClosestSpawn = pot;
+        }
+        indicator += "S:" + myClosestSpawn + ",";
+
+        Direction d1 = Pathfinding.mockMoveTowards(rc, rc.getLocation(), myClosestSpawn);
+        if(!rc.canMove(d1)) {
+            if(rc.canDropFlag(rc.getLocation().add(d1))) {
+                Direction d2 = Pathfinding.mockMoveTowards(rc, rc.getLocation().add(d1), myClosestSpawn);
+                Communicator.encodeThrowDirection(myFlag.getID(), d1, d2);
+                Communicator.reportFlagDrop(myFlag.getID());
+                myFlag = null;
+                justDropped = true;
+                rc.dropFlag(rc.getLocation().add(d1));
+                Pathfinding.resetAfterMock();
+            }
+        }
+        else {
+            rc.move(d1);
+        }
+    }*/
+
     static void hasFlagBehavior(RobotController rc) throws GameActionException {
         int minDist = Integer.MAX_VALUE;
         if (myClosestSpawn == null || rc.getRoundNum() - assignedSpawnAt > 50) {
@@ -418,22 +482,26 @@ public strictfp class RobotPlayer {
         }
 
         indicator += "S:" + myClosestSpawn + ",";
-        Direction d = Pathfinding.mockMoveTowards(rc, myClosestSpawn);
-        if(d == Direction.CENTER) {
+        Direction d = Pathfinding.mockMoveTowards(rc, rc.getLocation(), myClosestSpawn);
+        if(d == Direction.CENTER || !rc.canMove(d)) {
             tryThrowFlag(rc, d);
         }
-        //indicator += Pathfinding.moveToward(rc, myClosestSpawn);
+        indicator += "d:" + d + ",";
         if(/*rc.isMovementReady()*/ rc.getHealth() < 350) {
             tryThrowFlag(rc, d);
         }
-        if(rc.isMovementReady() && d != Direction.CENTER && rc.hasFlag()) {
+        if(rc.canMove(d) && rc.hasFlag()) {
             rc.move(d);
         }
 
     }
     static boolean justDropped = false;
     static void tryThrowFlag(RobotController rc, Direction d) throws GameActionException{
-
+        if(!rc.isActionReady()) return;
+        if(rc.getLocation().add(d).distanceSquaredTo(myClosestSpawn) > rc.getLocation().distanceSquaredTo(myClosestSpawn)) {
+            indicator+="throw-far,";
+            return;
+        }
         if(Direction.CENTER == d) {
             for (int i = friendCnt; i-- > 0; ) {
                 RobotInfo friend = allies[i];
@@ -724,45 +792,6 @@ public strictfp class RobotPlayer {
     static boolean isDiagonal(Direction dir) {
         return dir.dx * dir.dy != 0;
     }
-    private static void chase(RobotController rc, MapLocation location) throws GameActionException {
-        Direction forwardDir = rc.getLocation().directionTo(location);
-        Direction[] dirs = {forwardDir, forwardDir.rotateLeft(), forwardDir.rotateRight(),
-                forwardDir.rotateLeft().rotateLeft(), forwardDir.rotateRight().rotateRight()};
-        Direction bestDir = null;
-        int minCanSee = Integer.MAX_VALUE;
-        // pick a direction to chase to minimize the number of enemy launchers that can see us
-        for (Direction dir : dirs) {
-            //if (rc.canMove(dir) && rc.getLocation().add(dir).distanceSquaredTo(location) <= 4) {
-            if(!rc.canMove(dir) ) continue;
-            boolean yes = false;
-            for(int i = enemyCnt; i-->0;)
-                if(enemies[i].getLocation().isWithinDistanceSquared(rc.getLocation().add(dir), 4))
-                    yes = true;
-            if(yes){
-                int canSee = 0;
-                for (int i = enemyCnt; --i >= 0;){
-                    int newDis = rc.getLocation().add(dir).distanceSquaredTo(enemies[i].location);
-                    if (newDis <= 14) {
-                        canSee++;
-                    }
-                }
-                if (minCanSee > canSee) {
-                    bestDir = dir;
-                    minCanSee = canSee;
-                } else if (minCanSee == canSee && isDiagonal(bestDir) && !isDiagonal(dir)) {
-                    // from Cow: we prefer non-diagonal moves to preserve formation
-                    bestDir = dir;
-                }
-            }
-        }
-        if (bestDir != null) {
-            indicator += String.format("chase%s,", location);
-            rc.move(bestDir);
-            noMacro = true;
-        } else {
-            indicator += "failchase,";
-        }
-    }
 
     //region <vars>
     static RobotInfo attackTarget = null;
@@ -912,7 +941,7 @@ public strictfp class RobotPlayer {
             if(minDis <= 4) inDanger = true;
         }
 
-        if(friendCnt + enemyCnt *1.25 > 13 || entourage) build(rc);
+        if(friendCnt + enemyCnt *1.25 > 13 || entourage || builder) build(rc);
         /*if (rc.getHealth() < HEALING_CUTOFF && inDanger && chaseTarget != null) {
             kite(rc, chaseTarget.location);
             return;
@@ -1077,13 +1106,13 @@ public strictfp class RobotPlayer {
     @SuppressWarnings("unused")
     public static void run(RobotController rc) throws GameActionException {
         if(rc.readSharedArray(0) < 3) {
-            builder = true;
+            sentry = true;
         }
         microAttacker = new MicroAttacker(rc);
         FastMath.initRand(rc);
         Communicator.init(rc);
         Utils.init(rc);
-        if(Utils.commId <= 6 && Utils.commId > 3) sentry = true;
+        if(Utils.commId <= 6 && Utils.commId > 3) builder = true;
         while (true) {
 
             try {

@@ -1,4 +1,4 @@
-package v10official;
+package v10off1;
 
 import battlecode.common.*;
 
@@ -219,7 +219,7 @@ public class Communicator {
     }
 
     public static void recordNeverSniff(MapLocation loc) throws GameActionException  {
-        for(int i = 37; i < 51; i++) {
+        for(int i = 37; i < 53; i++) {
             if(rc.readSharedArray(i) == 0) {
                 rc.writeSharedArray(i, getInt(loc));
                 return;
@@ -227,7 +227,7 @@ public class Communicator {
         }
     }
     public static boolean shouldSniff(MapLocation loc) throws GameActionException {
-        for(int i = 37; i < 51; i++) {
+        for(int i = 37; i < 53; i++) {
             if(rc.readSharedArray(i) == getInt(loc)) {
                 return false;
             }
@@ -278,17 +278,6 @@ public class Communicator {
             }
         }
     }
-
-    /*
-    public static void setParity(RobotController rc, int parity) throws GameActionException {
-        if(rc.readSharedArray(63) > 0) {
-            return;
-        }
-        rc.writeSharedArray(63, parity+1);
-    }
-    public static int readParity(RobotController rc) throws GameActionException {
-        return rc.readSharedArray(63)-1;
-    }*/
     public static void wipe(RobotController rc) throws GameActionException {
         for (int i = 64; i-->0;) rc.writeSharedArray(i,0);
     }
@@ -320,9 +309,9 @@ public class Communicator {
 
     }
 
-    //09,10,11,12,13,14,15,16
-    //17,18,19,20,21,22,23,24
-    //25,26,27,28,29,30,31,32
+    //13,14,15,16,17,18,19,20
+    //21,22,23,24,25,26,27,28
+    //29,30,31,32,33,34,35,36
     static void reportCannotPickup(int fid, int myId) throws GameActionException {
         int idx = 0;
         for (int i = 58; i-- > 55; ) {
@@ -330,7 +319,7 @@ public class Communicator {
                 //57 --> 29 --> 2
                 //56 --> 21 --> 1
                 //55 --> 13 --> 0
-                idx = 2*(i - 55)+9;
+                idx = 2*(i - 55)+13;
             }
         }
         for(int i = 0; i < 8; i++) {
@@ -348,7 +337,7 @@ public class Communicator {
                 //57 --> 29 --> 2
                 //56 --> 21 --> 1
                 //55 --> 13 --> 0
-                idx = i - 22;
+                idx = 2*(i - 55)+13;
             }
         }
         for(int i = 0; i < 8; i++) {
@@ -359,47 +348,18 @@ public class Communicator {
         return true;
     }
 
-
-    static void encodeThrowDirection(int fid, Direction d1, Direction d2) throws GameActionException {
-        int idx = 0;
-        for (int i = 58; i-- > 55; ) {
-            if (rc.readSharedArray(i) == fid) {
-                //57 --> 29 --> 2
-                //56 --> 21 --> 1
-                //55 --> 13 --> 0
-                idx = i-22;
-                break;
-            }
-        }
-        rc.writeSharedArray(idx, d2.ordinal()+1);
-    }
-    static Direction readThrowDirection(int fid) throws GameActionException {
-        int idx = 0;
-        for (int i = 58; i-- > 55; ) {
-            if (rc.readSharedArray(i) == fid) {
-                //57 --> 29 --> 2
-                //56 --> 21 --> 1
-                //55 --> 13 --> 0
-                idx = i-22;
-                break;
-            }
-        }
-        //d1, d2
-        return Direction.allDirections()[rc.readSharedArray(idx)-1];
-    }
-
     static final int SNIFF_CNT = 4;
     static boolean canSniff() throws GameActionException{
-        if(rc.readSharedArray(8) < SNIFF_CNT) {
+        if(rc.readSharedArray(12) < SNIFF_CNT) {
             return true;
         }
         return false;
     }
     static void addSniffer() throws GameActionException{
-        rc.writeSharedArray(8, rc.readSharedArray(8) + 1);
+        rc.writeSharedArray(12, rc.readSharedArray(12) + 1);
     }
     static void removeSniffer() throws GameActionException{
-        rc.writeSharedArray(8, rc.readSharedArray(8) - 1);
+        rc.writeSharedArray(12, rc.readSharedArray(12) - 1);
     }
     static boolean opponentCapturing() {
         GlobalUpgrade[] g= rc.getGlobalUpgrades(rc.getTeam().opponent());
@@ -411,17 +371,4 @@ public class Communicator {
         return new MapLocation(e % rc.getMapWidth(), e / rc.getMapWidth());
     }
     public static int getInt(MapLocation loc) { return loc.x + loc.y*rc.getMapWidth() + 1; }
-
-    /*
-    0     : used for CommId
-    1-3   : allies being taken
-    4-7   : taking enemy flags
-    8     : # sniffers
-    9-32  : can i pickup flag?
-
-    33-35 : direction flag was thrown in...?
-    37-51 : sniff
-    52-63 : flag stuff
-
-     */
 }

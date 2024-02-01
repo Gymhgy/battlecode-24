@@ -110,7 +110,7 @@ public class MicroAttacker {
                 if (microInfo[i].isBetter(bestMicro)) bestMicro = microInfo[i];
             }
 
-            if (bestMicro.dir == Direction.CENTER) return true;
+            if (bestMicro.dir == Direction.CENTER && bestMicro.minDistanceToEnemy <= 4) return true;
 
             if (rc.canMove(bestMicro.dir)) {
                 rc.move(bestMicro.dir);

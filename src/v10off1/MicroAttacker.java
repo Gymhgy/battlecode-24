@@ -1,4 +1,4 @@
-package v10o3;
+package v10off1;
 
 import battlecode.common.*;
 
@@ -150,7 +150,7 @@ public class MicroAttacker {
             int dist = unit.getLocation().distanceSquaredTo(location);
             if (dist < minDistanceToEnemy)  minDistanceToEnemy = dist;
             if (dist <= currentActionRadius) DPSreceived += currentDPS;
-            if (dist <= 20) enemiesTargeting += currentDPS;
+            if (dist <= 10) enemiesTargeting += currentDPS;
         }
 
         void updateAlly(RobotInfo unit){
@@ -175,11 +175,6 @@ public class MicroAttacker {
         boolean isBetter(MicroInfo M){
             if(canMove && !M.canMove) return true;
             if(!canMove && M.canMove) return false;
-
-            /*if(rc.getHealth() < 351) {
-                if(enemiesTargeting < M.enemiesTargeting) return true;
-                if(enemiesTargeting > M.enemiesTargeting) return false;
-            }*/
 
             if (inRange() && !M.inRange()) return canAttack;
             if (!inRange() && M.inRange()) return !canAttack;

@@ -1,4 +1,4 @@
-package v10o3;
+package v10off1;
 
 import battlecode.common.*;
 
@@ -219,7 +219,8 @@ public strictfp class RobotPlayer {
             sense(rc);
             micro(rc);
         }
-        build(rc);
+        if(friendCnt + enemyCnt *1.25 > 13 || entourage) build(rc);
+
         if(rc.isActionReady()) heal(rc);
         checkNearbyFlag(rc);
         if(myFlag != null) {
@@ -913,7 +914,7 @@ public strictfp class RobotPlayer {
             if(minDis <= 4) inDanger = true;
         }
 
-       // if(friendCnt + enemyCnt *1.25 > 13 || entourage) build(rc);
+        //if(friendCnt + enemyCnt *1.25 > 13 || entourage) build(rc);
         /*if (rc.getHealth() < HEALING_CUTOFF && inDanger && chaseTarget != null) {
             kite(rc, chaseTarget.location);
             return;
@@ -1078,7 +1079,7 @@ public strictfp class RobotPlayer {
     @SuppressWarnings("unused")
     public static void run(RobotController rc) throws GameActionException {
         if(rc.readSharedArray(0) < 3) {
-            //builder = true;
+            builder = true;
         }
         microAttacker = new MicroAttacker(rc);
         FastMath.initRand(rc);

@@ -1,4 +1,4 @@
-package v10official;
+package v10off1;
 
 import battlecode.common.*;
 
@@ -447,53 +447,45 @@ public class Pathfinding {
         return null;
     }
 
-    static boolean isPassable(RobotController rc, Direction d) throws GameActionException {
-        return rc.canSenseLocation(rc.getLocation().add(d)) && rc.senseMapInfo(rc.getLocation().add(d)).isPassable();
-    }
 
-
-    static Direction mockMoveTowards(RobotController rc, MapLocation from, MapLocation location) throws GameActionException {
+    static Direction mockMoveTowards(RobotController rc, MapLocation location) throws GameActionException {
         // reset queue when target location changes or there's gap in between calls
         if (!location.equals(lastPathingTarget) || lastPathingTurn < rc.getRoundNum() - 4) {
             pathingCnt = 0;
             stuckCnt = 0;
         }
-        RobotPlayer.indicator = "";
-        RobotPlayer.indicator += String.format("2%sc%dt%s,", location, pathingCnt, currentTurnDir == 0? "L":"R");
-        if (true) {
+        indicator = "";
+        indicator += String.format("2%sc%dt%s,", location, pathingCnt, currentTurnDir == 0? "L":"R");
+        if (rc.isMovementReady()) {
             // we increase stuck count only if it's a new turn (optim for empty carriers)
-            if (from.equals(lastLocation)) {
+            if (rc.getLocation().equals(lastLocation)) {
                 if (rc.getRoundNum() != lastPathingTurn) {
                     stuckCnt++;
                 }
             } else {
-                lastLocation = from;
+                lastLocation = rc.getLocation();
                 stuckCnt = 0;
             }
             lastPathingTarget = location;
             lastPathingTurn = rc.getRoundNum();
-            /*if (stuckCnt >= 3) {
-                RobotPlayer.indicator += "stuck reset";
-                //randomMove(rc);
+            if (stuckCnt >= 3) {
+                indicator += "stuck reset";
+                randomMove(rc);
                 pathingCnt = 0;
-                return Direction.CENTER;
-            }*/
+            }
 
             if (pathingCnt == 0) {
                 //if free of obstacle: try go directly to target
-                Direction dir = from.directionTo(location);
-                boolean dirCanPass = rc.canSenseLocation(from.add(dir))
-                        && rc.senseMapInfo(from.add(dir)).isPassable();
-                boolean dirRightCanPass = rc.canSenseLocation(from.add(dir.rotateRight()))
-                        && rc.senseMapInfo(from.add(dir.rotateRight())).isPassable();
-                boolean dirLeftCanPass = rc.canSenseLocation(from.add(dir.rotateLeft()))
-                        && rc.senseMapInfo(from.add(dir.rotateLeft())).isPassable();
+                Direction dir = rc.getLocation().directionTo(location);
+                boolean dirCanPass = canPass(rc, dir);
+                boolean dirRightCanPass = canPass(rc, dir.rotateRight(), dir);
+                boolean dirLeftCanPass = canPass(rc, dir.rotateLeft(), dir);
                 if (dirCanPass || dirRightCanPass || dirLeftCanPass) {
-                    if (dirCanPass) {
+                    if (dirCanPass && rc.canMove(dir)) {
                         return dir;
-                    } else if (dirRightCanPass) {
+                    } else if (dirRightCanPass && rc.canMove(dir.rotateRight())) {
                         return dir.rotateRight();
-                    } else if (dirLeftCanPass) {
+                    } else if (dirLeftCanPass && rc.canMove(dir.rotateLeft())) {
                         return dir.rotateLeft();
                     }
                 } else {
@@ -501,12 +493,12 @@ public class Pathfinding {
                     if (rc.getRoundNum() > disableTurnDirRound) {
                         currentTurnDir = getTurnDir(rc, dir, location);
                     }
-                    while (!isPassable(rc, dir) && pathingCnt != 8) {
-//                        rc.setRobotPlayer.indicatorLine(from, from.add(dir), 0, 0, 255);
-                        if (!rc.onTheMap(from.add(dir))) {
+                    while (!canPass(rc, dir) && pathingCnt != 8) {
+//                        rc.setIndicatorLine(rc.getLocation(), rc.getLocation().add(dir), 0, 0, 255);
+                        if (!rc.onTheMap(rc.getLocation().add(dir))) {
                             currentTurnDir ^= 1;
                             pathingCnt = 0;
-                            RobotPlayer.indicator += "edge switch";
+                            indicator += "edge switch";
                             disableTurnDirRound = rc.getRoundNum() + 100;
                             return Direction.CENTER;
                         }
@@ -516,51 +508,51 @@ public class Pathfinding {
                         else dir = dir.rotateRight();
                     }
                     if (pathingCnt == 8) {
-                        RobotPlayer.indicator += "permblocked";
-                    } else if (isPassable(rc, dir)) {
+                        indicator += "permblocked";
+                    } else if (rc.canMove( dir)) {
                         return dir;
                     }
                 }
             } else {
                 //update stack of past directions, move to next available direction
-                if (pathingCnt > 1 && isPassable(rc, prv[pathingCnt - 2])) {
+                if (pathingCnt > 1 && canPass(rc, prv[pathingCnt - 2])) {
                     pathingCnt -= 2;
                 }
-                while (pathingCnt > 0 && isPassable(rc, prv[pathingCnt - 1])) {
-//                    rc.setRobotPlayer.indicatorLine(from, from.add(prv[pathingCnt - 1]), 0, 255, 0);
+                while (pathingCnt > 0 && canPass(rc, prv[pathingCnt - 1])) {
+//                    rc.setIndicatorLine(rc.getLocation(), rc.getLocation().add(prv[pathingCnt - 1]), 0, 255, 0);
                     pathingCnt--;
                 }
                 if (pathingCnt == 0) {
-                    Direction dir = from.directionTo(location);
-                    if (!isPassable(rc, dir)) {
+                    Direction dir = rc.getLocation().directionTo(location);
+                    if (!canPass(rc, dir)) {
                         prv[pathingCnt++] = dir;
                     }
                 }
                 int pathingCntCutOff = Math.min(PRV_LENGTH, pathingCnt + 8); // if 8 then all dirs blocked
-                while (pathingCnt > 0 && !isPassable(rc, currentTurnDir == 0?prv[pathingCnt - 1].rotateLeft():prv[pathingCnt - 1].rotateRight())) {
+                while (pathingCnt > 0 && !canPass(rc, currentTurnDir == 0?prv[pathingCnt - 1].rotateLeft():prv[pathingCnt - 1].rotateRight())) {
                     prv[pathingCnt] = currentTurnDir == 0?prv[pathingCnt - 1].rotateLeft():prv[pathingCnt - 1].rotateRight();
-//                    rc.setRobotPlayer.indicatorLine(from, from.add(prv[pathingCnt]), 255, 0, 0);
-                    if (!rc.onTheMap(from.add(prv[pathingCnt]))) {
+//                    rc.setIndicatorLine(rc.getLocation(), rc.getLocation().add(prv[pathingCnt]), 255, 0, 0);
+                    if (!rc.onTheMap(rc.getLocation().add(prv[pathingCnt]))) {
                         currentTurnDir ^= 1;
                         pathingCnt = 0;
-                        RobotPlayer.indicator += "edge switch";
+                        indicator += "edge switch";
                         disableTurnDirRound = rc.getRoundNum() + 100;
                         return Direction.CENTER;
                     }
                     pathingCnt++;
                     if (pathingCnt == pathingCntCutOff) {
                         pathingCnt = 0;
-                        RobotPlayer.indicator += "cutoff";
+                        indicator += "cutoff";
                         return Direction.CENTER;
                     }
                 }
                 Direction moveDir = pathingCnt == 0? prv[pathingCnt] :
                         (currentTurnDir == 0?prv[pathingCnt - 1].rotateLeft():prv[pathingCnt - 1].rotateRight());
-                if (isPassable(rc, moveDir)) {
+                if (rc.canMove(moveDir)) {
                     return moveDir;
                 } else {
                     // a robot blocking us while we are following wall, wait
-                    RobotPlayer.indicator += "blocked";
+                    indicator += "blocked";
                 }
             }
         }
@@ -568,9 +560,5 @@ public class Pathfinding {
         lastPathingTurn = rc.getRoundNum();
 
         return Direction.CENTER;
-    }
-    static void resetAfterMock() {
-        pathingCnt = 0;
-        stuckCnt = 0;
     }
 }
